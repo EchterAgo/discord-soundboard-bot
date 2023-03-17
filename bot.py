@@ -45,6 +45,12 @@ class AudioPlayer(commands.Cog, name='Audio Player'):
 
         filename = CONFIG_AUDIO_BASE_DIR / PureWindowsPath(query)
 
+        try:
+            filename.resolve().relative_to(CONFIG_AUDIO_BASE_DIR.resolve())
+        except ValueError:
+            await ctx.send("Naughty.")
+            return
+
         if not filename.is_file():
             await ctx.send("Audio file not found.")
             return
