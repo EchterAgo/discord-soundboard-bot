@@ -54,6 +54,8 @@ class AudioPlayer(commands.Cog, name='Audio Player'):
     @commands.command()
     async def stop(self, ctx):
         if ctx.voice_client:
+            if ctx.voice_client.is_playing():
+                ctx.voice_client.stop()
             await ctx.voice_client.disconnect()
 
     @play.before_invoke
