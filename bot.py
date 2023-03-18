@@ -18,7 +18,6 @@ def get_setting(name: str) -> str:
 CONFIG_DISCORD_TOKEN = get_setting('CONFIG_DISCORD_TOKEN')
 CONFIG_AUDIO_BASE_DIR = Path(get_setting('CONFIG_AUDIO_BASE_DIR'))
 
-
 # _log = logging.getLogger(__name__)
 _log = logging.getLogger('discord')
 
@@ -74,8 +73,7 @@ class AudioPlayer(commands.Cog, name='Audio Player'):
                 channel = next(iter(ctx.guild.voice_channels), None)
 
             if channel:
-                # Bot does not need to listen to the channel, so self-deafen
-                await channel.connect(self_deaf=True)
+                await channel.connect()
             else:
                 await ctx.send("You are not connected to a voice channel.")
                 raise commands.CommandError("Author not connected to a voice channel.")
@@ -103,28 +101,25 @@ class MyBot(commands.Bot):
         await self.invoke(ctx)
 
 
-intents = discord.Intents.default()
-intents.message_content = True
-bot = MyBot(
-    command_prefix=commands.when_mentioned_or("!"),
-    description='Simple Audio player bot',
-    intents=intents
-)
-
-
 @bot.event
 async def on_ready():
     _log.info(f'We have logged in as {bot.user} (ID: {bot.user.id})')
 
 
-async def main():
-    async with bot:
-        await bot.add_cog(AudioPlayer(bot))
-        await bot.add_cog(Controller(bot))
-        await bot.start(CONFIG_DISCORD_TOKEN)
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+    # discord.utils.setup_logging()
 
-discord.utils.setup_logging()
+    intents = discord.Intents.default()
+    intents.message_content = True
+    bot = MyBot(
+        command_prefix=commands.when_mentioned_or("!"),
+        description='Simple Audio player bot',
+        intents=intents
+    )
 
-asyncio.run(main())
+    bot.add_cog(AudioPlayer(bot))
+    bot.add_cog(Controller(bot))
+    bot.run(CONFIG_DISCORD_TOKEN)
 
 # https://discord.com/api/oauth2/authorize?client_id=1085103559244251179&permissions=2048&scope=bot

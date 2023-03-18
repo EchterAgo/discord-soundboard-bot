@@ -1,3 +1,2 @@
-discord
-PyNaCl
+py-cord[voice,speed]
 requests
