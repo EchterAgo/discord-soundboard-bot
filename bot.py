@@ -6,7 +6,13 @@ from pathlib import Path, PureWindowsPath
 import discord
 from discord.ext import commands
 
+from aiohttp import web
+
+from jsonrpcserver import method, Result, Success, InvalidParams, JsonRpcError, async_dispatch
+
 import requests
+
+from utils import find_files
 
 
 def get_setting(name: str) -> str:
@@ -29,56 +35,67 @@ class AudioPlayer(commands.Cog, name='Audio Player'):
         self.bot = bot
 
     @commands.command()
-    async def summon(self, ctx):
-        pass
-
-    @staticmethod
-    async def raise_error(ctx, msg):
-        await ctx.send(msg)
-        raise commands.CommandError(msg)
+    async def ping(self, ctx: discord.ext.commands.Context):
+        await ctx.send('pong')
 
     @commands.command()
-    async def play(self, ctx, *, query: str):
-        if not ctx.voice_client or not ctx.voice_client.is_connected():
-            await self.raise_error(ctx, "Bot is not connected to a voice channel.")
+    async def play(self, ctx: discord.ext.commands.Context, *, query: str):
+        try:
+            await self.rpc_play(ctx.guild, query)
+        except commands.CommandError as e:
+            await ctx.send(str(e))
+            raise
+
+    async def rpc_play(self, guild: discord.Guild, query: str):
+        if not guild.voice_client or not guild.voice_client.is_connected():
+            raise commands.CommandError('Bot is not connected to a voice channel.')
 
         filename = CONFIG_AUDIO_BASE_DIR / PureWindowsPath(query)
 
         try:
             filename.resolve().relative_to(CONFIG_AUDIO_BASE_DIR.resolve())
         except ValueError:
-            await ctx.send("Naughty.")
-            return
+            raise commands.CommandError('Naughty.')
 
         if not filename.is_file():
-            await ctx.send("Audio file not found.")
-            return
+            raise commands.CommandError('Audio file not found.')
 
-        ctx.voice_client.play(discord.FFmpegOpusAudio(filename), after=lambda e: _log.info(f'Playback done {e}'))
+        guild.voice_client.play(discord.FFmpegOpusAudio(filename), after=lambda e: _log.info(f'Playback done {e}'))
 
     @commands.command()
-    async def stop(self, ctx):
+    async def stop(self, ctx: discord.ext.commands.Context):
         if ctx.voice_client:
             if ctx.voice_client.is_playing():
                 ctx.voice_client.stop()
             await ctx.voice_client.disconnect()
+            #ctx.voice_client.cleanup()
 
     @play.before_invoke
-    async def ensure_voice(self, ctx):
-        if ctx.voice_client is None:
-            channel = None
+    async def ensure_voice(self, ctx: discord.ext.commands.Context):
+        try:
+            channel = ctx.channel
             if hasattr(ctx.author, 'voice') and ctx.author.voice:
                 channel = ctx.author.voice.channel
-            else:
-                channel = next(iter(ctx.guild.voice_channels), None)
+            await self.rpc_ensure_voice(ctx.guild, channel)
+        except commands.CommandError as e:
+            await ctx.send(str(e))
+            raise
+
+    async def rpc_ensure_voice(self, guild: discord.Guild, channel: discord.abc.GuildChannel):
+        if guild.voice_client is None:
+            if not channel:
+                channel = next(iter(guild.voice_channels), None)
 
             if channel:
                 await channel.connect()
+                await guild.change_voice_state(channel=channel, self_deaf=True)
             else:
-                await ctx.send("You are not connected to a voice channel.")
-                raise commands.CommandError("Author not connected to a voice channel.")
-        elif ctx.voice_client.is_playing():
-            ctx.voice_client.stop()
+                raise commands.CommandError('Author not connected to a voice channel.')
+        elif guild.voice_client.is_playing():
+            guild.voice_client.stop()
+
+    async def rpc_send_message(self, channel: discord.abc.GuildChannel, message: str):
+        await channel.send(content=message)
 
 
 class Controller(commands.Cog, name='Controller'):
@@ -100,26 +117,86 @@ class MyBot(commands.Bot):
         ctx = await self.get_context(message)
         await self.invoke(ctx)
 
-
-@bot.event
-async def on_ready():
-    _log.info(f'We have logged in as {bot.user} (ID: {bot.user.id})')
+    async def on_ready(self):
+        _log.info(f'We have logged in as {self.user} (ID: {self.user.id})')
 
 
-if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
-    # discord.utils.setup_logging()
-
+async def start_bot(app):
     intents = discord.Intents.default()
     intents.message_content = True
+
     bot = MyBot(
-        command_prefix=commands.when_mentioned_or("!"),
+        command_prefix=commands.when_mentioned_or('!'),
         description='Simple Audio player bot',
         intents=intents
     )
-
+    app['bot'] = bot
     bot.add_cog(AudioPlayer(bot))
     bot.add_cog(Controller(bot))
-    bot.run(CONFIG_DISCORD_TOKEN)
+    bot_task = asyncio.create_task(bot.start(CONFIG_DISCORD_TOKEN))
+
+    yield
+
+    await bot.close()
+    await bot_task
+
+
+async def http_hello(request):
+    return web.Response(text='Hello, world')
+
+
+@method(name='list')
+async def jsonrpc_list(context) -> Result:
+    return Success(list(find_files(CONFIG_AUDIO_BASE_DIR)))
+
+
+@method(name='play')
+async def jsonrpc_play(context, channelid, query) -> Result:
+    bot = context.app['bot']
+
+    channel = bot.get_channel(int(channelid))
+    if not channel:
+        return InvalidParams('Channel not found')
+
+    guild = channel.guild
+
+    audio_player = bot.get_cog('Audio Player')
+
+    try:
+        await audio_player.rpc_ensure_voice(guild, channel)
+        await audio_player.rpc_play(guild, query)
+    except commands.CommandError as e:
+        return JsonRpcError(1, str(e))
+
+    return Success('Playback successful')
+
+
+@method(name='message')
+async def jsonrpc_message(context, channelid, content) -> Result:
+    bot = context.app['bot']
+
+    channel = bot.get_channel(int(channelid))
+    if not channel:
+        return InvalidParams('Channel not found')
+
+    await channel.send(content=content)
+
+    return Success('Playback successful')
+
+
+async def http_handle_rpc(request):
+    return web.Response(
+        text=await async_dispatch(await request.text(), context=request), content_type='application/json'
+    )
+
+if __name__ == '__main__':
+    logging.basicConfig(level=logging.INFO)
+    # discord.utils.setup_logging()
+
+    app = web.Application()
+    app.cleanup_ctx.append(start_bot)
+    app.router.add_get('/', http_hello)
+    app.router.add_post('/rpc', http_handle_rpc)
+    web.run_app(app, port=28914)
 
 # https://discord.com/api/oauth2/authorize?client_id=1085103559244251179&permissions=2048&scope=bot
