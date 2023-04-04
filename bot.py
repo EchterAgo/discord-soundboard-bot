@@ -21,6 +21,8 @@ def get_setting(name: str) -> str:
     raise KeyError()
 
 
+BOT_BASE_DIR = Path(__file__).parent.resolve()
+
 CONFIG_DISCORD_TOKEN = get_setting('CONFIG_DISCORD_TOKEN')
 CONFIG_AUDIO_BASE_DIR = Path(get_setting('CONFIG_AUDIO_BASE_DIR'))
 
@@ -150,6 +152,15 @@ async def jsonrpc_list(context) -> Result:
     return Success(list(find_files(CONFIG_AUDIO_BASE_DIR)))
 
 
+@method(name='search')
+async def jsonrpc_search(context, query) -> Result:
+    files = list(find_files(CONFIG_AUDIO_BASE_DIR))
+
+    files = [f for f in files if query in f]
+
+    return Success(files)
+
+
 @method(name='play')
 async def jsonrpc_play(context, channelid, query) -> Result:
     bot = context.app['bot']
@@ -186,7 +197,14 @@ async def jsonrpc_message(context, channelid, content) -> Result:
 
 async def http_handle_rpc(request):
     return web.Response(
-        text=await async_dispatch(await request.text(), context=request), content_type='application/json'
+        text=await async_dispatch(await request.text(), context=request),
+        content_type='application/json',
+        headers={'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Content-Type'}
+    )
+
+async def http_handle_rpc_options(request):
+    return web.Response(
+        headers={'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Content-Type'}
     )
 
 if __name__ == '__main__':
@@ -197,6 +215,8 @@ if __name__ == '__main__':
     app.cleanup_ctx.append(start_bot)
     app.router.add_get('/', http_hello)
     app.router.add_post('/rpc', http_handle_rpc)
+    app.router.add_options('/rpc', http_handle_rpc_options)
+    app.router.add_static('/soundboard', BOT_BASE_DIR / 'web')
     web.run_app(app, port=28914)
 
 # https://discord.com/api/oauth2/authorize?client_id=1085103559244251179&permissions=2048&scope=bot
