@@ -1,20 +1,19 @@
-async function playFile(name) {
-    const response = await fetch('https://host/rpc', {
+const RPC_URL = 'https://host/rpc';
+
+async function jsonRpcCall(url, method, params) {
+    response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', },
-        body: JSON.stringify({
-            jsonrpc: '2.0',
-            method: `play`,
-            params: {
-                'channelid': '1033659964457230392',
-                'query': name
-            },
-            id: 1
-        }),
-      }
-    );
+        body: JSON.stringify({ jsonrpc: '2.0', method: method, params: params, id: 1 }),
+    })
 
     const { result, error } = await response.json();
+
+    return result;
+}
+
+async function playFile(name) {
+    await jsonRpcCall(RPC_URL, 'play', { 'channelid': '1033659964457230392', 'query': name });
 }
 
 async function playSpecifiedFile() {
@@ -22,43 +21,41 @@ async function playSpecifiedFile() {
 }
 
 async function playIfEnter(event) {
-    if(event.keyCode === 13) {
+    if (event.keyCode === 13) {
         await playSpecifiedFile();
     }
 }
 
-async function listFiles(query) {
-    const response = await fetch('https://host/rpc', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', },
-        body: JSON.stringify({
-            jsonrpc: '2.0',
-            method: `search`,
-            params: {'query': query},
-            id: 1
-        }),
-      }
-    );
+async function listFiles() {
+    return await jsonRpcCall(RPC_URL, 'list', {});
+}
 
-    const { result, error } = await response.json();
+async function searchFiles(query) {
+    return await jsonRpcCall(RPC_URL, 'search', { 'query': query });
+}
 
-    return result;
+var ALL_FILES;
+
+async function fetchAutoComplete() {
+    ALL_FILES = await listFiles();
 }
 
 async function setupAutoComplete() {
+    fetchAutoComplete();
+
     $('#fname').autoComplete({
         resolver: 'custom',
         minLength: 1,
         preventEnter: true,
         events: {
-            search: async function (qry, callback) {
-                const files = await listFiles(qry);
-                callback(files);
+            search: async function (query, callback) {
+                callback(ALL_FILES.filter(file => file.toLowerCase().includes(query.toLowerCase())));
+                // callback(await searchFiles(query));
             }
         }
     });
 }
 
-window.onload = async function() {
+window.onload = async function () {
     await setupAutoComplete();
 };
