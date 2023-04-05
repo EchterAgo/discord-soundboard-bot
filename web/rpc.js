@@ -42,7 +42,7 @@ async function fetchAutoComplete() {
 }
 
 async function setupAutoComplete() {
-    fetchAutoComplete();
+    await fetchAutoComplete();
 
     $('#fname').autoComplete({
         resolver: 'custom',
