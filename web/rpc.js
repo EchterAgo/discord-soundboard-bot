@@ -1,4 +1,5 @@
 const RPC_URL = 'https://host/rpc';
+const DISCORD_VOICE_CHANNEL_ID = '1234567890';
 
 async function jsonRpcCall(url, method, params) {
     response = await fetch(url, {
@@ -13,7 +14,7 @@ async function jsonRpcCall(url, method, params) {
 }
 
 async function playFile(name) {
-    await jsonRpcCall(RPC_URL, 'play', { 'channelid': '1033659964457230392', 'query': name });
+    await jsonRpcCall(RPC_URL, 'play', { 'channelid': DISCORD_VOICE_CHANNEL_ID, 'query': name });
 }
 
 async function playSpecifiedFile() {
