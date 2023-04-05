@@ -45,9 +45,7 @@ async function setupAutoComplete() {
     await fetchAutoComplete();
 
     $('#fname').autoComplete({
-        resolver: 'custom',
-        minLength: 1,
-        preventEnter: true,
+        resolver: 'custom', minLength: 1, preventEnter: true,
         events: {
             search: async function (query, callback) {
                 callback(ALL_FILES.filter(file => file.toLowerCase().includes(query.toLowerCase())));
