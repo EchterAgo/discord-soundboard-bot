@@ -55,6 +55,12 @@ async function setupAutoComplete() {
     });
 }
 
+
+
+let wakeLock = null;
+
 window.onload = async function () {
     await setupAutoComplete();
+
+    wakeLock = await navigator.wakeLock.request('screen');
 };
