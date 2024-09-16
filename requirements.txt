@@ -1,3 +1,5 @@
 py-cord[voice,speed]
 requests
 jsonrpcserver
+matplotlib
+aiohttp
