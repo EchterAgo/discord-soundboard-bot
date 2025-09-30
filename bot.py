@@ -170,8 +170,8 @@ async def start_discord_bot():
 
 
 async def main():
-    # logging.basicConfig(level=logging.INFO)
-    logging.basicConfig(level=logging.DEBUG)
+    logging.basicConfig(level=logging.INFO)
+    # logging.basicConfig(level=logging.DEBUG)
 
     await start_discord_bot()
 
