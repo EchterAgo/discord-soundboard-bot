@@ -1,5 +1,6 @@
-py-cord[voice,speed]
+nextcord[voice,speed]
 requests
 jsonrpcserver
 matplotlib
 aiohttp
+openai

@@ -2,8 +2,8 @@ import asyncio
 import logging
 from pathlib import Path
 
-import discord
-from discord.ext import commands
+import nextcord
+from nextcord.ext import commands
 
 import aiohttp
 import aiohttp.web
@@ -50,44 +50,12 @@ aiohttp.resolver.DefaultResolver = aiohttp.resolver.ThreadedResolver
 
 
 class MyBot(commands.Bot):
-    async def process_commands(self, message: discord.Message, /) -> None:
-        ctx = await self.get_context(message)
-        await self.invoke(ctx)
-
     async def on_ready(self):
         _log.info(f"We have logged in as {self.user} (ID: {self.user.id})")
+        await self.sync_all_application_commands()
 
     async def on_connect(self):
         _log.info(f"Connected to server")
-        if self.auto_sync_commands:
-            _log.info(f"Syncing commands")
-            await self.sync_commands()
-
-
-async def start_bot(app):
-    intents = discord.Intents.default()
-    intents.message_content = True
-
-    bot = MyBot(
-        command_prefix=commands.when_mentioned_or("!"),
-        description="Simple Audio player bot",
-        intents=intents,
-    )
-    app["bot"] = bot
-    bot.add_cog(AudioPlayer(bot))
-    bot.add_cog(Controller(bot))
-    bot.add_cog(RegelnDesErwerbs(bot))
-    bot.add_cog(LLM(bot))
-    bot.add_cog(TextToImage(bot))
-    bot.add_cog(MagischeKugel(bot))
-    bot.add_cog(Bloedsinn(bot))
-    bot.add_cog(Statistics(bot))
-    bot_task = asyncio.create_task(bot.start(CONFIG_DISCORD_TOKEN))
-
-    yield
-
-    await bot.close()
-    await bot_task
 
 
 async def http_hello(request):
@@ -162,16 +130,53 @@ async def http_handle_rpc_options(request):
     )
 
 
-if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
-    # discord.utils.setup_logging()
-
+async def start_webserver(bot: commands.Bot):
     app = aiohttp.web.Application()
-    app.cleanup_ctx.append(start_bot)
+
+    app["bot"] = bot  # to get the bot in handlers
+
     app.router.add_get("/", http_hello)
     app.router.add_post("/rpc", http_handle_rpc)
     app.router.add_options("/rpc", http_handle_rpc_options)
     app.router.add_static("/soundboard", BOT_BASE_DIR / "web")
-    aiohttp.web.run_app(app, port=28914)
+    runner = aiohttp.web.AppRunner(app)
+    await runner.setup()
+    site = aiohttp.web.TCPSite(runner, port=28914)
+    await site.start()
+
+
+async def start_discord_bot():
+    intents = nextcord.Intents.default()
+    intents.message_content = True
+
+    bot = MyBot(
+        command_prefix=commands.when_mentioned_or("!"),
+        description="ObstNudler",
+        intents=intents,
+    )
+
+    bot.add_cog(AudioPlayer(bot))
+    bot.add_cog(Controller(bot))
+    bot.add_cog(RegelnDesErwerbs(bot))
+    bot.add_cog(LLM(bot))
+    bot.add_cog(TextToImage(bot))
+    bot.add_cog(MagischeKugel(bot))
+    bot.add_cog(Bloedsinn(bot))
+    bot.add_cog(Statistics(bot))
+
+    asyncio.create_task(start_webserver(bot))
+
+    await bot.start(CONFIG_DISCORD_TOKEN)
+
+
+async def main():
+    # logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(level=logging.DEBUG)
+
+    await start_discord_bot()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
 
 # https://discord.com/api/oauth2/authorize?client_id=1085103559244251179&permissions=2048&scope=bot

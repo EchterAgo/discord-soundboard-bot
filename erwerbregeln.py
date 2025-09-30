@@ -1,6 +1,6 @@
 import random
-import discord
-from discord.ext import commands
+import nextcord
+from nextcord.ext import commands
 
 # fmt: off
 
@@ -72,11 +72,11 @@ class RegelnDesErwerbs(commands.Cog, name="Regeln des Erwerbs"):
     def __init__(self, bot):
         self.bot = bot
 
-    @commands.slash_command(
+    @nextcord.slash_command(
         name="erwerbsregel",
         description="Regeln des Erwerbs",
     )
-    async def erwerbsregel(self, ctx: discord.ApplicationContext, nummer: int = -1, text: str = None):
+    async def erwerbsregel(self, interaction: nextcord.Interaction, nummer: int = -1, text: str = None):
         if text:
             regel = (nummer, text)
         else:
@@ -86,10 +86,10 @@ class RegelnDesErwerbs(commands.Cog, name="Regeln des Erwerbs"):
                 regel = random.choice(REGELN_DES_ERWERBS)
 
         if not regel:
-            await ctx.interaction.response.send_message(f"Regel des Erwerbs #0815: PEBCAK")
+            await interaction.response.send_message(f"Regel des Erwerbs #0815: PEBCAK")
             return
 
         if regel[0] is not None:
-            await ctx.interaction.response.send_message(f"Regel des Erwerbs #{regel[0]}: {regel[1]}")
+            await interaction.response.send_message(f"Regel des Erwerbs #{regel[0]}: {regel[1]}")
         else:
-            await ctx.interaction.response.send_message(f"Regel des Erwerbs: {regel[1]}")
+            await interaction.response.send_message(f"Regel des Erwerbs: {regel[1]}")
