@@ -49,12 +49,6 @@
       "color": "success"
     },
     {
-      "id": 9,
-      "label": "Thüringer Klöße",
-      "sound": "ago/kloesse.mp3",
-      "color": "info"
-    },
-    {
       "id": 10,
       "label": "Die Nudel-Frucht",
       "sound": "ago/nudelfrucht.mp3",
@@ -91,6 +85,12 @@
       "color": "warning"
     },
     {
+      "id": 9,
+      "label": "Thüringer Klöße",
+      "sound": "ago/kloesse.mp3",
+      "color": "info"
+    },
+    {
       "id": 16,
       "label": "Mit Prügel korrigieren",
       "sound": "ago/pruegel.mp3",
@@ -121,18 +121,6 @@
       "color": "warning"
     },
     {
-      "id": 21,
-      "label": "Bubble Tea Azubis",
-      "sound": "ago/bubbleteaazubis.mp3",
-      "color": "info"
-    },
-    {
-      "id": 22,
-      "label": "Polizei Verhaften",
-      "sound": "ago/buenzli_verhaften.mp3",
-      "color": "danger"
-    },
-    {
       "id": 23,
       "label": "Sofort Aufhören",
       "sound": "ago/buenzli_sofortaufhoeren.mp3",
@@ -149,6 +137,18 @@
       "label": "Verboten",
       "sound": "ago/buenzli_verboten.mp3",
       "color": "danger"
+    },
+    {
+      "id": 22,
+      "label": "Polizei Verhaften",
+      "sound": "ago/buenzli_verhaften.mp3",
+      "color": "danger"
+    },
+    {
+      "id": 21,
+      "label": "Bubble Tea Azubis",
+      "sound": "ago/bubbleteaazubis.mp3",
+      "color": "info"
     },
     {
       "id": 26,
@@ -193,16 +193,16 @@
       "color": "warning"
     },
     {
-      "id": 33,
-      "label": "Millionaire",
-      "sound": "ago/millionaire.mp3",
-      "color": "success"
-    },
-    {
       "id": 34,
       "label": "Pacman Dead",
       "sound": "ago/pacman_death.mp3",
       "color": "danger"
+    },
+    {
+      "id": 37,
+      "label": "Wololo",
+      "sound": "ago/wololo.mp3",
+      "color": "primary"
     },
     {
       "id": 35,
@@ -213,13 +213,31 @@
     {
       "id": 36,
       "label": "Sam Jump",
-      "sound": "ago/ss/jump.mp3",
+      "sound": "ago/ss/jump.wav",
       "color": "info"
     },
     {
-      "id": 37,
-      "label": "Wololo",
-      "sound": "ago/wololo.mp3",
+      "id": 1765126166905,
+      "label": "HL Step1",
+      "sound": "ago/hl/npc_step1.wav",
+      "color": "primary"
+    },
+    {
+      "id": 1765126190136,
+      "label": "HL Step2",
+      "sound": "ago/hl/npc_step2.wav",
+      "color": "primary"
+    },
+    {
+      "id": 1765126192432,
+      "label": "HL Step3",
+      "sound": "ago/hl/npc_step3.wav",
+      "color": "primary"
+    },
+    {
+      "id": 1765126194008,
+      "label": "HL Step4",
+      "sound": "ago/hl/npc_step4.wav",
       "color": "primary"
     },
     {
@@ -349,64 +367,34 @@
       "color": "warning"
     },
     {
-      "id": 59,
-      "label": "Alpha 1 Enough of this",
-      "sound": "ago/alpha1.mp3",
-      "color": "primary"
-    },
-    {
-      "id": 60,
-      "label": "Alpha 2 Don't tell me",
-      "sound": "ago/alpha2.mp3",
-      "color": "primary"
-    },
-    {
-      "id": 61,
-      "label": "Alpha 3 I am now the alpha",
-      "sound": "ago/alpha3.mp3",
-      "color": "primary"
-    },
-    {
-      "id": 62,
-      "label": "Alpha 4 Not how this works",
-      "sound": "ago/alpha4.mp3",
-      "color": "primary"
-    },
-    {
-      "id": 63,
-      "label": "Alpha 5 Takes priority",
-      "sound": "ago/alpha5.mp3",
-      "color": "primary"
-    },
-    {
-      "id": 64,
-      "label": "Alpha 6 Sit in his seat",
-      "sound": "ago/alpha6.mp3",
-      "color": "primary"
-    },
-    {
-      "id": 65,
-      "label": "Alpha 7 Doesn't have to listen",
-      "sound": "ago/alpha7.mp3",
-      "color": "primary"
-    },
-    {
-      "id": 66,
-      "label": "Alpha 8 Consequences still apply",
-      "sound": "ago/alpha8.mp3",
-      "color": "primary"
-    },
-    {
-      "id": 67,
-      "label": "Alpha 9 Doesn't take punishment",
-      "sound": "ago/alpha9.mp3",
-      "color": "primary"
-    },
-    {
       "id": 68,
       "label": "Gabe Axel Gembe",
       "sound": "ago/gabe_axel_gembe.mp3",
       "color": "secondary"
+    },
+    {
+      "id": 1765114915800,
+      "label": "Kazoo",
+      "sound": "ago/kazoo.mp3",
+      "color": "warning"
+    },
+    {
+      "id": 1765114926928,
+      "label": "Kazoo2",
+      "sound": "ago/kazoo2.mp3",
+      "color": "warning"
+    },
+    {
+      "id": 1765121022688,
+      "label": "Bingo Bango",
+      "sound": "mimi/bingo bango bongo bish bash bosh.mp3",
+      "color": "dark"
+    },
+    {
+      "id": 33,
+      "label": "Millionaire",
+      "sound": "ago/millionaire.mp3",
+      "color": "success"
     }
   ],
   "grid_size": {
@@ -418,5 +406,5 @@
   "favorites": [],
   "version": "1.0",
   "created_at": "2025-12-07T00:00:00.000Z",
-  "updated_at": "2025-12-07T11:09:56.610985"
+  "updated_at": "2025-12-07T17:36:46.917645"
 }
