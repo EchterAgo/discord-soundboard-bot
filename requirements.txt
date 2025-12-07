@@ -4,3 +4,4 @@ jsonrpcserver
 matplotlib
 aiohttp
 openai
+watchdog

@@ -3,7 +3,9 @@
 import logging
 import time
 import json
+import asyncio
 from typing import Set
+from pathlib import Path
 
 import aiohttp
 from discord.ext import commands
@@ -14,6 +16,8 @@ from jsonrpcserver import (
     InvalidParams,
     Error,
 )
+from watchdog.observers import Observer
+from watchdog.events import FileSystemEventHandler
 
 from utils import find_files
 from config import CONFIG_AUDIO_BASE_DIR
@@ -24,6 +28,101 @@ _log = logging.getLogger(__name__)
 
 # WebSocket connections registry
 websocket_connections: Set[aiohttp.web.WebSocketResponse] = set()
+
+# File watcher
+file_observer = None
+event_loop = None
+
+
+class AudioFileHandler(FileSystemEventHandler):
+    """Handler for audio file system events."""
+    
+    def __init__(self, loop):
+        self.loop = loop
+        self.debounce_timer = None
+    
+    def _schedule_broadcast(self):
+        """Schedule a broadcast after a short delay to debounce rapid changes."""
+        if self.debounce_timer:
+            self.debounce_timer.cancel()
+        
+        async def do_broadcast():
+            await asyncio.sleep(0.5)  # Debounce delay
+            await broadcast_file_list_update()
+        
+        self.debounce_timer = asyncio.run_coroutine_threadsafe(
+            do_broadcast(), self.loop
+        )
+    
+    def on_created(self, event):
+        if not event.is_directory:
+            _log.info(f"Audio file created: {event.src_path}")
+            self._schedule_broadcast()
+    
+    def on_deleted(self, event):
+        if not event.is_directory:
+            _log.info(f"Audio file deleted: {event.src_path}")
+            self._schedule_broadcast()
+    
+    def on_moved(self, event):
+        if not event.is_directory:
+            _log.info(f"Audio file moved: {event.src_path} -> {event.dest_path}")
+            self._schedule_broadcast()
+
+
+async def broadcast_file_list_update():
+    """Broadcast file list update to all connected WebSocket clients."""
+    if not websocket_connections:
+        return
+    
+    try:
+        files = list(find_files(CONFIG_AUDIO_BASE_DIR))
+        message = json.dumps({
+            "type": "file_list_update",
+            "files": files
+        })
+        
+        disconnected = set()
+        for ws in websocket_connections:
+            try:
+                await ws.send_str(message)
+            except Exception as e:
+                _log.warning(f"Failed to send file list update to WebSocket client: {e}")
+                disconnected.add(ws)
+        
+        # Remove disconnected clients
+        websocket_connections.difference_update(disconnected)
+        
+        _log.info(f"Broadcasted file list update to {len(websocket_connections)} clients")
+        
+    except Exception as e:
+        _log.error(f"Error broadcasting file list update: {e}", exc_info=True)
+
+
+def start_file_watcher(loop):
+    """Start watching the audio directory for changes."""
+    global file_observer, event_loop
+    
+    event_loop = loop
+    event_handler = AudioFileHandler(loop)
+    file_observer = Observer()
+    
+    # Watch the audio directory recursively
+    file_observer.schedule(event_handler, CONFIG_AUDIO_BASE_DIR, recursive=True)
+    file_observer.start()
+    
+    _log.info(f"Started watching audio directory: {CONFIG_AUDIO_BASE_DIR}")
+
+
+def stop_file_watcher():
+    """Stop the file watcher."""
+    global file_observer
+    
+    if file_observer:
+        file_observer.stop()
+        file_observer.join()
+        file_observer = None
+        _log.info("Stopped file watcher")
 
 
 def _build_queue_status(audio_player, guild):
@@ -103,6 +202,35 @@ async def broadcast_queue_update(bot, channelid):
         
     except Exception as e:
         _log.error(f"Error broadcasting queue update: {e}", exc_info=True)
+
+
+async def broadcast_config_update(user_name: str, config: dict):
+    """Broadcast user config update to all connected WebSocket clients."""
+    if not websocket_connections:
+        return
+    
+    try:
+        message = json.dumps({
+            "type": "config_update",
+            "user_name": user_name,
+            "config": config
+        })
+        
+        disconnected = set()
+        for ws in websocket_connections:
+            try:
+                await ws.send_str(message)
+            except Exception as e:
+                _log.warning(f"Failed to send config update to WebSocket client: {e}")
+                disconnected.add(ws)
+        
+        # Remove disconnected clients
+        websocket_connections.difference_update(disconnected)
+        
+        _log.info(f"Broadcasted config update for {user_name} to {len(websocket_connections)} clients")
+        
+    except Exception as e:
+        _log.error(f"Error broadcasting config update: {e}", exc_info=True)
 
 
 @method(name="list")
@@ -356,6 +484,8 @@ async def jsonrpc_save_user_config(context, user_name: str, config: dict) -> Res
         
         success = user_config.save_user_config(user_name, config)
         if success:
+            # Broadcast config update to all connected clients
+            await broadcast_config_update(user_name, config)
             return Success("Configuration saved successfully")
         else:
             return Error(1, "Failed to save configuration")
@@ -398,6 +528,8 @@ async def jsonrpc_reset_user_config(context, user_name: str) -> Result:
         default_config = user_config.get_default_config()
         default_config["username"] = user_name
         user_config.save_user_config(user_name, default_config)
+        # Broadcast config update to all connected clients
+        await broadcast_config_update(user_name, default_config)
         return Success(default_config)
     except Exception as e:
         _log.error(f"Failed to reset user config for {user_name}: {e}", exc_info=True)

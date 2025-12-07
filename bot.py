@@ -160,6 +160,10 @@ async def start_discord_bot():
         
         audio_player.queue_update_callback = queue_update_callback
 
+    # Start file watcher for audio directory changes
+    loop = asyncio.get_event_loop()
+    rpc_server.start_file_watcher(loop)
+
     asyncio.create_task(start_webserver(bot))
 
     if not CONFIG_DISCORD_TOKEN:

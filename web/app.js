@@ -11,7 +11,7 @@ let wsCallbacks = new Map();
 let wsReadyPromise = null;
 let wsReadyResolve = null;
 
-function initWebSocket(onQueueUpdate) {
+function initWebSocket(onQueueUpdate, onFileListUpdate, onConfigUpdate) {
     if (websocket && (websocket.readyState === WebSocket.CONNECTING || websocket.readyState === WebSocket.OPEN)) {
         return wsReadyPromise;
     }
@@ -50,6 +50,18 @@ function initWebSocket(onQueueUpdate) {
                     // This will be updated via the onQueueUpdate callback
                 }
             }
+            // Handle file list updates
+            else if (data.type === 'file_list_update') {
+                if (onFileListUpdate) {
+                    onFileListUpdate(data.files);
+                }
+            }
+            // Handle config updates
+            else if (data.type === 'config_update') {
+                if (onConfigUpdate) {
+                    onConfigUpdate(data.user_name, data.config);
+                }
+            }
             // Handle JSON-RPC responses
             else if (data.id && wsCallbacks.has(data.id)) {
                 const { resolve, reject } = wsCallbacks.get(data.id);
@@ -82,7 +94,7 @@ function initWebSocket(onQueueUpdate) {
         if (!wsReconnectTimer) {
             wsReconnectTimer = setTimeout(() => {
                 wsReconnectTimer = null;
-                initWebSocket(onQueueUpdate);
+                initWebSocket(onQueueUpdate, onFileListUpdate, onConfigUpdate);
             }, 2000);
         }
     };
@@ -959,12 +971,31 @@ createApp({
         document.body.setAttribute('data-bs-theme', this.theme);
         
         // Initialize WebSocket with queue update handler and wait for it to be ready
-        const wsReady = initWebSocket((data) => {
-            this.queueStatus = data;
-            if (data.connected_users !== undefined) {
-                this.connectedUsers = data.connected_users;
+        const wsReady = initWebSocket(
+            (data) => {
+                this.queueStatus = data;
+                if (data.connected_users !== undefined) {
+                    this.connectedUsers = data.connected_users;
+                }
+            },
+            (files) => {
+                console.log('[File List] Updated with', files.length, 'files');
+                this.allSounds = files;
+            },
+            (user_name, config) => {
+                // Only update if the config is for the current user
+                if (this.username && user_name === this.username) {
+                    console.log('[Config] Updated from another instance');
+                    // Merge the config, preserving local-only state like editingButton
+                    this.config = {
+                        ...this.config,
+                        ...config
+                    };
+                    // Optionally show a notification
+                    console.log('[Config] Configuration reloaded from server');
+                }
             }
-        });
+        );
         
         // Start polling interval
         this.startQueuePolling();

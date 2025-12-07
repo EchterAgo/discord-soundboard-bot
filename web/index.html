@@ -42,9 +42,6 @@
                     <span class="badge bg-info" v-else-if="!queueStatus.is_playing">Connected</span>
                     <span class="badge bg-success" v-else>Playing</span>
                     
-                    <button class="btn btn-sm btn-outline-light" @click="loadAllSounds" title="Refresh sound list" aria-label="Refresh sound list" tabindex="0">
-                        <i class="bi bi-arrow-clockwise"></i>
-                    </button>
                     <button class="btn btn-sm btn-outline-light" @click="showQueue = !showQueue" @keydown.enter="showQueue = !showQueue" title="Queue Status (Press Q)" aria-label="Toggle queue status" tabindex="0">
                         <i class="bi bi-list-ul"></i>
                     </button>
