@@ -1,65 +1,134 @@
 const { createApp } = Vue;
 
 // RPC Client
-const RPC_URL = 'https://apollo.loping.net/rpc/soundbot';
+const WS_URL = 'wss://apollo.loping.net/ws';
 const DISCORD_VOICE_CHANNEL_ID = '1033659964457230392';
 
-async function rpcCall(method, params = {}) {
-    const startTime = performance.now();
-    try {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 60000); // 60 second timeout
-        
-        console.log(`[RPC] Starting ${method} call...`);
-        
-        const response = await fetch(RPC_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                jsonrpc: '2.0',
-                method: method,
-                params: params,
-                id: Date.now()
-            }),
-            signal: controller.signal
-        });
-        
-        clearTimeout(timeout);
-        const fetchTime = performance.now();
-        console.log(`[RPC] ${method} fetch completed in ${(fetchTime - startTime).toFixed(2)}ms`);
-        
-        // Check if the response is OK before parsing
-        if (!response.ok) {
-            const text = await response.text();
-            if (response.status === 504) {
-                throw new Error('Server timeout - the bot may not be running or is taking too long to respond');
-            }
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-        }
-        
-        // Check if the response is JSON
-        const contentType = response.headers.get('content-type');
-        if (!contentType || !contentType.includes('application/json')) {
-            const text = await response.text();
-            throw new Error(`Expected JSON response but got ${contentType}`);
-        }
-        
-        const data = await response.json();
-        const endTime = performance.now();
-        console.log(`[RPC] ${method} total time: ${(endTime - startTime).toFixed(2)}ms`);
-        
-        if (data.error) {
-            throw new Error(data.error.message || 'RPC Error');
-        }
-        return data.result;
-    } catch (error) {
-        const endTime = performance.now();
-        console.error(`[RPC] ${method} failed after ${(endTime - startTime).toFixed(2)}ms:`, error);
-        if (error.name === 'AbortError') {
-            throw new Error('Request timeout after 60 seconds - the server is not responding');
-        }
-        throw error;
+// WebSocket connection management
+let websocket = null;
+let wsReconnectTimer = null;
+let wsCallbacks = new Map();
+let wsReadyPromise = null;
+let wsReadyResolve = null;
+
+function initWebSocket(onQueueUpdate) {
+    if (websocket && (websocket.readyState === WebSocket.CONNECTING || websocket.readyState === WebSocket.OPEN)) {
+        return wsReadyPromise;
     }
+    
+    // Create a new ready promise
+    wsReadyPromise = new Promise((resolve) => {
+        wsReadyResolve = resolve;
+    });
+    
+    websocket = new WebSocket(WS_URL);
+    
+    websocket.onopen = () => {
+        console.log('[WebSocket] Connected');
+        if (wsReconnectTimer) {
+            clearTimeout(wsReconnectTimer);
+            wsReconnectTimer = null;
+        }
+        // Resolve the ready promise
+        if (wsReadyResolve) {
+            wsReadyResolve();
+            wsReadyResolve = null;
+        }
+    };
+    
+    websocket.onmessage = (event) => {
+        try {
+            const data = JSON.parse(event.data);
+            
+            // Handle queue updates
+            if (data.type === 'queue_update') {
+                if (onQueueUpdate) {
+                    onQueueUpdate(data);
+                }
+                // Update connected users count if available
+                if (data.connected_users !== undefined) {
+                    // This will be updated via the onQueueUpdate callback
+                }
+            }
+            // Handle JSON-RPC responses
+            else if (data.id && wsCallbacks.has(data.id)) {
+                const { resolve, reject } = wsCallbacks.get(data.id);
+                wsCallbacks.delete(data.id);
+                
+                if (data.error) {
+                    reject(new Error(data.error.message || 'RPC Error'));
+                } else {
+                    resolve(data.result);
+                }
+            }
+        } catch (e) {
+            console.error('[WebSocket] Error parsing message:', e);
+        }
+    };
+    
+    websocket.onerror = (error) => {
+        console.error('[WebSocket] Error:', error);
+    };
+    
+    websocket.onclose = () => {
+        console.log('[WebSocket] Disconnected');
+        websocket = null;
+        
+        // Reset ready promise
+        wsReadyPromise = null;
+        wsReadyResolve = null;
+        
+        // Reconnect after 2 seconds
+        if (!wsReconnectTimer) {
+            wsReconnectTimer = setTimeout(() => {
+                wsReconnectTimer = null;
+                initWebSocket(onQueueUpdate);
+            }, 2000);
+        }
+    };
+    
+    return wsReadyPromise;
+}
+
+async function rpcCallWs(method, params = {}) {
+    return new Promise((resolve, reject) => {
+        if (!websocket || websocket.readyState !== WebSocket.OPEN) {
+            reject(new Error('WebSocket not connected'));
+            return;
+        }
+        
+        const id = Date.now() + Math.random();
+        const request = {
+            jsonrpc: '2.0',
+            method: method,
+            params: params,
+            id: id
+        };
+        
+        wsCallbacks.set(id, { resolve, reject });
+        websocket.send(JSON.stringify(request));
+        
+        // Timeout after 10 seconds
+        setTimeout(() => {
+            if (wsCallbacks.has(id)) {
+                wsCallbacks.delete(id);
+                reject(new Error('RPC timeout'));
+            }
+        }, 10000);
+    });
+}
+
+async function rpcCall(method, params = {}) {
+    // Wait for WebSocket to be ready
+    if (wsReadyPromise) {
+        await wsReadyPromise;
+    }
+    
+    if (!websocket || websocket.readyState !== WebSocket.OPEN) {
+        throw new Error('WebSocket not connected');
+    }
+    
+    return await rpcCallWs(method, params);
 }
 
 createApp({
@@ -78,6 +147,7 @@ createApp({
                 updated_at: null
             },
             allSounds: [],
+            connectedUsers: 0,
             queueStatus: {
                 connected: false,
                 is_playing: false,
@@ -88,6 +158,7 @@ createApp({
             searchQuery: '',
             showSettings: false,
             showHelp: false,
+            showQueue: false,
             activeView: 'buttons', // 'buttons', 'recent', 'all'
             editingButton: null,
             buttonColors: ['primary', 'secondary', 'success', 'danger', 'warning', 'info', 'dark'],
@@ -518,7 +589,7 @@ createApp({
                     user_id: userId,
                     item_index: index
                 });
-                await this.refreshQueue();
+                // No need to manually refresh - WebSocket will push update
             } catch (error) {
                 console.error('Failed to remove queue item:', error);
                 alert('Failed to remove item: ' + error.message);
@@ -543,7 +614,7 @@ createApp({
                         item_index: i
                     });
                 }
-                await this.refreshQueue();
+                // No need to manually refresh - WebSocket will push updates
             } catch (error) {
                 console.error('Failed to clear user queue:', error);
                 alert('Failed to clear queue: ' + error.message);
@@ -839,15 +910,24 @@ createApp({
         },
         
         startQueuePolling() {
+            // Keep polling as backup (every 5 seconds) if WebSocket fails
             this.queueRefreshInterval = setInterval(() => {
-                this.refreshQueue();
-            }, 2000);
+                if (!websocket || websocket.readyState !== WebSocket.OPEN) {
+                    this.refreshQueue();
+                }
+            }, 5000);
         },
         
         stopQueuePolling() {
             if (this.queueRefreshInterval) {
                 clearInterval(this.queueRefreshInterval);
                 this.queueRefreshInterval = null;
+            }
+            
+            // Close WebSocket
+            if (websocket) {
+                websocket.close();
+                websocket = null;
             }
         },
         
@@ -874,20 +954,37 @@ createApp({
         }
     },
     
-    mounted() {
+    async mounted() {
         // Apply theme
         document.body.setAttribute('data-bs-theme', this.theme);
         
-        // Load initial data
-        this.loadAllSounds();
+        // Initialize WebSocket with queue update handler and wait for it to be ready
+        const wsReady = initWebSocket((data) => {
+            this.queueStatus = data;
+            if (data.connected_users !== undefined) {
+                this.connectedUsers = data.connected_users;
+            }
+        });
         
-        if (this.username) {
-            this.loadUserConfig();
-        }
-        
-        // Start queue polling
-        this.refreshQueue();
+        // Start polling interval
         this.startQueuePolling();
+        
+        // Wait for WebSocket to connect before loading data
+        try {
+            await wsReady;
+            
+            // Load initial data
+            this.loadAllSounds();
+            
+            if (this.username) {
+                this.loadUserConfig();
+            }
+            
+            // Get initial queue status
+            this.refreshQueue();
+        } catch (error) {
+            console.error('Failed to initialize WebSocket:', error);
+        }
         
         // Request wake lock to keep screen on
         this.requestWakeLock();
@@ -927,6 +1024,12 @@ createApp({
                 this.showSettings = !this.showSettings;
             }
             
+            // Q for queue
+            if (e.key === 'q' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+                e.preventDefault();
+                this.showQueue = !this.showQueue;
+            }
+            
             // 1, 2, 3 for view switching
             if (e.key === '1' && !e.ctrlKey && !e.metaKey && !e.altKey) {
                 e.preventDefault();
@@ -949,6 +1052,8 @@ createApp({
                     this.showHelp = false;
                 } else if (this.showSettings) {
                     this.showSettings = false;
+                } else if (this.showQueue) {
+                    this.showQueue = false;
                 }
             }
         });

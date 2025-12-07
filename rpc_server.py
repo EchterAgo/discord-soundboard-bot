@@ -2,7 +2,10 @@
 
 import logging
 import time
+import json
+from typing import Set
 
+import aiohttp
 from discord.ext import commands
 from jsonrpcserver import (
     method,
@@ -18,6 +21,88 @@ import user_config
 
 
 _log = logging.getLogger(__name__)
+
+# WebSocket connections registry
+websocket_connections: Set[aiohttp.web.WebSocketResponse] = set()
+
+
+def _build_queue_status(audio_player, guild):
+    """Build queue status dictionary from audio player state.
+    
+    Args:
+        audio_player: AudioPlayer cog instance
+        guild: Discord guild object
+        
+    Returns:
+        Dictionary containing queue status
+    """
+    status = {
+        "is_playing": audio_player.is_processing,
+        "connected": guild.voice_client is not None,
+        "connected_users": len(websocket_connections),
+        "user_queues": [],
+        "active_streams": [],
+        "total_queued": 0
+    }
+    
+    # Get user queues
+    for user_id, queue in audio_player.user_queues.items():
+        if queue:
+            queue_items = [{"query": item.query, "user_name": item.user_name} for item in queue]
+            status["user_queues"].append({
+                "user_id": user_id,
+                "user_name": queue[0].user_name if queue else "Unknown",
+                "count": len(queue),
+                "items": queue_items
+            })
+            status["total_queued"] += len(queue)
+    
+    # Get active streams
+    if audio_player.mixed_source:
+        for user_id, stream in audio_player.mixed_source.streams.items():
+            status["active_streams"].append({
+                "user_id": user_id,
+                "user_name": stream.user_name,
+                "filepath": stream.filepath,
+                "finished": stream.finished
+            })
+    
+    return status
+
+
+async def broadcast_queue_update(bot, channelid):
+    """Broadcast queue status update to all connected WebSocket clients."""
+    if not websocket_connections:
+        return
+    
+    try:
+        channel = bot.get_channel(int(channelid))
+        if not channel:
+            return
+
+        guild = channel.guild
+        audio_player = bot.get_cog("AudioPlayer")
+        if not audio_player:
+            return
+
+        status = _build_queue_status(audio_player, guild)
+        status["type"] = "queue_update"  # Add type for WebSocket message
+        
+        # Broadcast to all connected clients
+        message = json.dumps(status)
+        disconnected = set()
+        for ws in websocket_connections:
+            try:
+                await ws.send_str(message)
+            except Exception as e:
+                _log.warning(f"Failed to send to WebSocket client: {e}")
+                disconnected.add(ws)
+        
+        # Remove disconnected clients
+        websocket_connections.difference_update(disconnected)
+        
+    except Exception as e:
+        _log.error(f"Error broadcasting queue update: {e}", exc_info=True)
 
 
 @method(name="list")
@@ -97,6 +182,9 @@ async def jsonrpc_play(context, channelid, query, interrupt=False, play_next=Fal
         # Track in recent sounds
         user_config.add_recent_sound(user_name, query)
         
+        # Broadcast queue update to WebSocket clients
+        await broadcast_queue_update(bot, channelid)
+        
         total_time = (time.time() - start_time) * 1000
         _log.debug(f"[RPC] play request completed successfully in {total_time:.2f}ms")
         
@@ -137,6 +225,9 @@ async def jsonrpc_stop(context, channelid, user_name="RPC") -> Result:
     
     result = audio_player.stop_playback(guild.voice_client, user_name=user_name)
     
+    # Broadcast queue update to WebSocket clients
+    await broadcast_queue_update(bot, channelid)
+    
     if result['stopped'] and result['queue_cleared'] > 0:
         return Success(f"Playback stopped and cleared {result['queue_cleared']} queued items")
     elif result['stopped']:
@@ -169,35 +260,7 @@ async def jsonrpc_queue_status(context, channelid) -> Result:
     if not audio_player:
         return Error(1, "Audio player cog not found")
 
-    status = {
-        "is_playing": audio_player.is_processing,
-        "connected": guild.voice_client is not None,
-        "user_queues": [],
-        "active_streams": [],
-        "total_queued": 0
-    }
-    
-    # Get user queues
-    for user_id, queue in audio_player.user_queues.items():
-        if queue:
-            queue_items = [{"query": item.query, "user_name": item.user_name} for item in queue]
-            status["user_queues"].append({
-                "user_id": user_id,
-                "user_name": queue[0].user_name if queue else "Unknown",
-                "count": len(queue),
-                "items": queue_items
-            })
-            status["total_queued"] += len(queue)
-    
-    # Get active streams
-    if audio_player.mixed_source:
-        for user_id, stream in audio_player.mixed_source.streams.items():
-            status["active_streams"].append({
-                "user_id": user_id,
-                "user_name": stream.user_name,
-                "filepath": stream.filepath,
-                "finished": stream.finished
-            })
+    status = _build_queue_status(audio_player, guild)
     
     return Success(status)
 
@@ -250,6 +313,9 @@ async def jsonrpc_remove_queue_item(context, channelid, user_id, item_index) -> 
         del audio_player.user_queues[user_id]
     
     _log.info(f"Removed queue item '{removed_item.query}' at index {item_index} for user {user_id}")
+    
+    # Broadcast queue update to WebSocket clients
+    await broadcast_queue_update(bot, channelid)
     
     return Success(f"Removed '{removed_item.query}' from queue")
 
@@ -358,3 +424,41 @@ async def jsonrpc_message(context, channelid, content) -> Result:
     await channel.send(content=content)
 
     return Success("Message sent successfully")
+
+
+async def handle_websocket(request):
+    """Handle WebSocket connections for real-time updates and RPC commands."""
+    ws = aiohttp.web.WebSocketResponse()
+    await ws.prepare(request)
+    
+    websocket_connections.add(ws)
+    _log.info(f"WebSocket client connected. Total connections: {len(websocket_connections)}")
+    
+    bot = request.app["bot"]
+    
+    try:
+        async for msg in ws:
+            if msg.type == aiohttp.WSMsgType.TEXT:
+                try:
+                    data = json.loads(msg.data)
+                    
+                    # Handle JSON-RPC over WebSocket
+                    if "method" in data:
+                        from jsonrpcserver import async_dispatch
+                        response = await async_dispatch(msg.data, context=request)
+                        await ws.send_str(response)
+                    
+                except json.JSONDecodeError:
+                    await ws.send_json({"error": "Invalid JSON"})
+                except Exception as e:
+                    _log.error(f"Error handling WebSocket message: {e}", exc_info=True)
+                    await ws.send_json({"error": str(e)})
+                    
+            elif msg.type == aiohttp.WSMsgType.ERROR:
+                _log.error(f"WebSocket connection closed with exception: {ws.exception()}")
+    
+    finally:
+        websocket_connections.discard(ws)
+        _log.info(f"WebSocket client disconnected. Total connections: {len(websocket_connections)}")
+    
+    return ws

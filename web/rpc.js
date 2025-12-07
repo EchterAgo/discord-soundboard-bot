@@ -1,5 +1,135 @@
-const RPC_URL = 'https://apollo.loping.net/rpc/soundbot';
+const WS_URL = 'wss://apollo.loping.net/ws';
 const DISCORD_VOICE_CHANNEL_ID = '1033659964457230392';
+
+// WebSocket connection
+let ws = null;
+let wsReconnectTimer = null;
+let queueUpdateCallbacks = [];
+let wsReadyPromise = null;
+let wsReadyResolve = null;
+
+// Register callback for queue updates
+function onQueueUpdate(callback) {
+    queueUpdateCallbacks.push(callback);
+}
+
+// Initialize WebSocket connection
+function initWebSocket() {
+    if (ws && (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN)) {
+        return wsReadyPromise; // Already connected or connecting
+    }
+    
+    // Create a new ready promise
+    wsReadyPromise = new Promise((resolve) => {
+        wsReadyResolve = resolve;
+    });
+    
+    ws = new WebSocket(WS_URL);
+    
+    ws.onopen = () => {
+        console.log('WebSocket connected');
+        if (wsReconnectTimer) {
+            clearTimeout(wsReconnectTimer);
+            wsReconnectTimer = null;
+        }
+        // Resolve the ready promise
+        if (wsReadyResolve) {
+            wsReadyResolve();
+            wsReadyResolve = null;
+        }
+    };
+    
+    ws.onmessage = (event) => {
+        try {
+            const data = JSON.parse(event.data);
+            
+            // Handle queue updates
+            if (data.type === 'queue_update') {
+                queueUpdateCallbacks.forEach(callback => callback(data));
+            }
+            // Handle JSON-RPC responses (if we send commands via WebSocket)
+            else if (data.result !== undefined || data.error !== undefined) {
+                // Handle RPC response
+                console.log('RPC response:', data);
+            }
+        } catch (e) {
+            console.error('Error parsing WebSocket message:', e);
+        }
+    };
+    
+    ws.onerror = (error) => {
+        console.error('WebSocket error:', error);
+    };
+    
+    ws.onclose = () => {
+        console.log('WebSocket disconnected');
+        ws = null;
+        
+        // Reset ready promise
+        wsReadyPromise = null;
+        wsReadyResolve = null;
+        
+        // Reconnect after 2 seconds
+        if (!wsReconnectTimer) {
+            wsReconnectTimer = setTimeout(() => {
+                wsReconnectTimer = null;
+                initWebSocket();
+            }, 2000);
+        }
+    };
+    
+    return wsReadyPromise;
+}
+
+// Send JSON-RPC command via WebSocket
+async function jsonRpcCallWs(method, params) {
+    // Wait for WebSocket to be ready
+    if (wsReadyPromise) {
+        await wsReadyPromise;
+    }
+    
+    return new Promise((resolve, reject) => {
+        if (!ws || ws.readyState !== WebSocket.OPEN) {
+            reject(new Error('WebSocket not connected'));
+            return;
+        }
+        
+        const id = Math.random().toString(36).substring(7);
+        const request = {
+            jsonrpc: '2.0',
+            method: method,
+            params: params,
+            id: id
+        };
+        
+        // Set up one-time listener for response
+        const messageHandler = (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                if (data.id === id) {
+                    ws.removeEventListener('message', messageHandler);
+                    if (data.error) {
+                        reject(new Error(data.error.message || 'RPC error'));
+                    } else {
+                        resolve(data.result);
+                    }
+                }
+            } catch (e) {
+                ws.removeEventListener('message', messageHandler);
+                reject(e);
+            }
+        };
+        
+        ws.addEventListener('message', messageHandler);
+        ws.send(JSON.stringify(request));
+        
+        // Timeout after 10 seconds
+        setTimeout(() => {
+            ws.removeEventListener('message', messageHandler);
+            reject(new Error('RPC timeout'));
+        }, 10000);
+    });
+}
 
 // Cookie management functions
 function setCookie(name, value, days = 365) {
@@ -31,36 +161,42 @@ function loadUsername() {
     }
 }
 
-async function jsonRpcCall(url, method, params) {
-    response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', },
-        body: JSON.stringify({ jsonrpc: '2.0', method: method, params: params, id: 1 }),
-    })
 
-    const { result, error } = await response.json();
-
-    return result;
-}
 
 async function playFile(name) {
     const username = document.getElementById('username').value || 'Anonymous';
-    await jsonRpcCall(RPC_URL, 'play', { 'channelid': DISCORD_VOICE_CHANNEL_ID, 'query': name, 'user_name': username });
+    
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+        throw new Error('WebSocket not connected');
+    }
+    
+    await jsonRpcCallWs('play', { 
+        'channelid': DISCORD_VOICE_CHANNEL_ID, 
+        'query': name, 
+        'user_name': username 
+    });
 }
 
 async function stopPlayback() {
-    await jsonRpcCall(RPC_URL, 'stop', { 'channelid': DISCORD_VOICE_CHANNEL_ID });
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+        throw new Error('WebSocket not connected');
+    }
+    
+    await jsonRpcCallWs('stop', { 'channelid': DISCORD_VOICE_CHANNEL_ID });
 }
 
 async function removeQueueItem(userId, itemIndex) {
     try {
-        await jsonRpcCall(RPC_URL, 'remove_queue_item', { 
+        if (!ws || ws.readyState !== WebSocket.OPEN) {
+            throw new Error('WebSocket not connected');
+        }
+        
+        await jsonRpcCallWs('remove_queue_item', { 
             'channelid': DISCORD_VOICE_CHANNEL_ID, 
             'user_id': userId, 
             'item_index': itemIndex 
         });
-        // Immediately refresh the queue display
-        await refreshQueue();
+        // No need to manually refresh - WebSocket will push update
     } catch (error) {
         console.error('Failed to remove queue item:', error);
         alert('Failed to remove queue item: ' + error.message);
@@ -78,16 +214,25 @@ async function playIfEnter(event) {
 }
 
 async function listFiles() {
-    return await jsonRpcCall(RPC_URL, 'list', {});
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+        throw new Error('WebSocket not connected');
+    }
+    return await jsonRpcCallWs('list', {});
 }
 
 async function searchFiles(query) {
-    return await jsonRpcCall(RPC_URL, 'search', { 'query': query });
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+        throw new Error('WebSocket not connected');
+    }
+    return await jsonRpcCallWs('search', { 'query': query });
 }
 
 async function getQueueStatus() {
     try {
-        return await jsonRpcCall(RPC_URL, 'queue_status', { 'channelid': DISCORD_VOICE_CHANNEL_ID });
+        if (!ws || ws.readyState !== WebSocket.OPEN) {
+            throw new Error('WebSocket not connected');
+        }
+        return await jsonRpcCallWs('queue_status', { 'channelid': DISCORD_VOICE_CHANNEL_ID });
     } catch (error) {
         console.error('Failed to get queue status:', error);
         return null;
@@ -182,24 +327,25 @@ function escapeHtml(text) {
 let queueUpdateInterval = null;
 
 async function startQueuePolling() {
-    // Initial update
-    const status = await getQueueStatus();
-    updateQueueDisplay(status);
-    
-    // Poll every 2 seconds
-    if (queueUpdateInterval) {
-        clearInterval(queueUpdateInterval);
-    }
-    queueUpdateInterval = setInterval(async () => {
-        const status = await getQueueStatus();
+    // Set up WebSocket listener for real-time updates
+    onQueueUpdate((status) => {
         updateQueueDisplay(status);
-    }, 2000);
+    });
+    
+    // Initialize WebSocket connection
+    initWebSocket();
 }
 
 function stopQueuePolling() {
     if (queueUpdateInterval) {
         clearInterval(queueUpdateInterval);
         queueUpdateInterval = null;
+    }
+    
+    // Close WebSocket connection
+    if (ws) {
+        ws.close();
+        ws = null;
     }
 }
 

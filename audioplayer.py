@@ -2,7 +2,6 @@ import logging
 from pathlib import PurePosixPath
 import random
 import asyncio
-from collections import deque, defaultdict
 import subprocess
 import threading
 import discord
@@ -11,6 +10,7 @@ from discord.ext import commands
 
 from config import CONFIG_AUDIO_BASE_DIR
 from utils import caseless_in, find_files
+from observable import ObservableDeque, ObservableDict, ObservableDequeDict
 from typing import Callable, Iterator, Optional, Dict
 import audioop
 
@@ -89,11 +89,14 @@ class UserAudioStream:
 class MixedAudioSource(discord.AudioSource):
     """Audio source that mixes multiple per-user audio streams"""
     
-    def __init__(self, stream_finished_event: Optional[asyncio.Event] = None):
-        self.streams: Dict[int, UserAudioStream] = {}
+    def __init__(self, stream_finished_event: Optional[asyncio.Event] = None, stream_changed_callback: Optional[Callable[[], None]] = None, event_loop: Optional[asyncio.AbstractEventLoop] = None):
+        # Use ObservableDict to automatically trigger callback on changes
+        self.streams: Dict[int, UserAudioStream] = ObservableDict(stream_changed_callback)
         self.lock = threading.Lock()
         self._finished = False
         self.stream_finished_event = stream_finished_event
+        self.stream_changed_callback = stream_changed_callback
+        self.event_loop = event_loop
         
     def add_stream(self, user_id: int, filepath: str, user_name: str, after: Optional[Callable[[], None]] = None):
         """Add or replace a user's audio stream"""
@@ -108,6 +111,7 @@ class MixedAudioSource(discord.AudioSource):
             stream = UserAudioStream(filepath, user_id, user_name)
             stream.after_callback = after
             stream.start()
+            # Assignment triggers ObservableDict callback
             self.streams[user_id] = stream
             _log.info(f"Added stream for {user_name} (ID: {user_id}): {filepath}")
     
@@ -131,15 +135,17 @@ class MixedAudioSource(discord.AudioSource):
             for user_id, stream in list(self.streams.items()):
                 if stream.finished:
                     stream.cleanup()
+                    # Deletion triggers ObservableDict callback
                     del self.streams[user_id]
                     _log.debug(f"Stream finished for {stream.user_name} (ID: {user_id})")
                     # Signal that a stream finished
                     if self.stream_finished_event:
                         try:
                             # Use call_soon_threadsafe since we're in a thread
-                            import asyncio
-                            loop = asyncio.get_event_loop()
-                            loop.call_soon_threadsafe(self.stream_finished_event.set)
+                            if self.event_loop:
+                                self.event_loop.call_soon_threadsafe(self.stream_finished_event.set)
+                            else:
+                                _log.debug("No event loop available to signal stream finished")
                         except Exception as e:
                             _log.debug(f"Could not signal stream finished: {e}")
                     continue
@@ -186,7 +192,10 @@ class AudioPlayer(commands.Cog):
     def __init__(self, bot):
         self.qualified_name
         self.bot = bot
-        self.user_queues: Dict[int, deque[QueueItem]] = defaultdict(deque)
+        self.queue_update_callback = None  # Callback for queue updates
+        self.user_queues: Dict[int, ObservableDeque] = ObservableDequeDict(
+            on_change_callback=lambda: self.queue_update_callback() if self.queue_update_callback else None
+        )
         self.mixed_source: Optional[MixedAudioSource] = None
         self.is_processing = False
         self.process_lock = asyncio.Lock()
@@ -339,8 +348,16 @@ class AudioPlayer(commands.Cog):
         _log.debug("Starting mixed audio playback system")
         
         try:
-            # Create mixed audio source
-            self.mixed_source = MixedAudioSource(self.stream_finished_event)
+            # Get the current event loop to pass to the callback
+            event_loop = asyncio.get_event_loop()
+            
+            # Create mixed audio source with callback for stream changes
+            def on_stream_changed():
+                # This gets called from the audio thread, so use call_soon_threadsafe
+                if self.queue_update_callback:
+                    event_loop.call_soon_threadsafe(lambda: asyncio.create_task(self.queue_update_callback()))
+            
+            self.mixed_source = MixedAudioSource(self.stream_finished_event, on_stream_changed, event_loop)
             
             # Start the first stream(s) before starting playback
             async with self.process_lock:
@@ -380,7 +397,6 @@ class AudioPlayer(commands.Cog):
 
     async def process_user_queues(self):
         """Process all user queues and add sounds to the mixer"""
-        
         try:
             while self.is_processing:
                 has_work = False
@@ -404,7 +420,7 @@ class AudioPlayer(commands.Cog):
                             has_work = True  # Still have active streams
                             continue  # User already playing, skip
                         
-                        # Get next item from user's queue
+                        # Get next item from user's queue (triggers callback via ObservableDeque)
                         item = queue.popleft()
                         has_work = True
                         
@@ -423,9 +439,8 @@ class AudioPlayer(commands.Cog):
                 
                 # Check active streams in mixer
                 if self.mixed_source:
-                    stream_count = len(self.mixed_source.streams)
-                    _log.debug(f"Active streams in mixer: {stream_count}")
-                    if stream_count > 0:
+                    _log.debug(f"Active streams in mixer: {len(self.mixed_source.streams)}")
+                    if self.mixed_source.streams:
                         has_work = True
                 
                 # Check if we should stop

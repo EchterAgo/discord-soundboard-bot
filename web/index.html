@@ -29,6 +29,9 @@
             <div class="container-fluid">
                 <span class="navbar-brand mb-0 h1">
                     <i class="bi bi-music-note-beamed"></i> Discord Soundboard
+                    <span class="badge bg-secondary ms-2" :title="connectedUsers + ' user(s) connected'">
+                        <i class="bi bi-people-fill"></i> {{ connectedUsers }}
+                    </span>
                 </span>
                 <div class="d-flex align-items-center gap-2">
                     <button class="btn btn-sm" :class="'btn-' + playModeInfo.color" @click="togglePlayMode" :title="'Click to change play mode'" tabindex="0" aria-label="Play mode toggle">
@@ -41,6 +44,9 @@
                     
                     <button class="btn btn-sm btn-outline-light" @click="loadAllSounds" title="Refresh sound list" aria-label="Refresh sound list" tabindex="0">
                         <i class="bi bi-arrow-clockwise"></i>
+                    </button>
+                    <button class="btn btn-sm btn-outline-light" @click="showQueue = !showQueue" @keydown.enter="showQueue = !showQueue" title="Queue Status (Press Q)" aria-label="Toggle queue status" tabindex="0">
+                        <i class="bi bi-list-ul"></i>
                     </button>
                     <button class="btn btn-sm btn-outline-light" @click="showHelp = !showHelp" @keydown.enter="showHelp = !showHelp" title="Help (Press ?)" aria-label="Toggle help" tabindex="0">
                         <i class="bi bi-question-circle"></i>
@@ -126,6 +132,7 @@
                                 <li><strong>Escape:</strong> Close modals and dropdowns</li>
                                 <li><strong>?:</strong> Toggle this help panel</li>
                                 <li><strong>S:</strong> Toggle settings panel</li>
+                                <li><strong>Q:</strong> Toggle queue status panel</li>
                                 <li><strong>1/2/3:</strong> Switch to Custom/Recent/All view</li>
                             </ul>
                             <p class="small text-muted mb-0">Hold modifiers to see the mode indicator change.</p>
@@ -315,6 +322,55 @@
                 </div>
             </div>
 
+            <!-- Queue Status -->
+            <div v-if="showQueue" class="card mb-3 border-success">
+                <div class="card-header bg-success text-white">
+                    <h5 class="mb-0"><i class="bi bi-list-ul"></i> Queue Status</h5>
+                </div>
+                <div class="card-body">
+                    <div v-if="queueStatus.active_streams && queueStatus.active_streams.length > 0" class="mb-3">
+                        <h6><i class="bi bi-music-note"></i> Currently Playing:</h6>
+                        <div v-for="stream in queueStatus.active_streams" :key="stream.user_id" class="alert alert-success">
+                            <strong>{{ stream.user_name }}</strong>: {{ stream.filepath.split('/').pop() }}
+                        </div>
+                    </div>
+                    
+                    <div v-if="queueStatus.user_queues && queueStatus.user_queues.length > 0">
+                        <h6><i class="bi bi-list-ul"></i> Queued Sounds:</h6>
+                        <p class="text-muted small">Total: {{ queueStatus.total_queued }} item(s)</p>
+                        
+                        <div v-for="userQueue in queueStatus.user_queues" :key="userQueue.user_id" class="card mb-2">
+                            <div class="card-header py-2 d-flex justify-content-between align-items-center">
+                                <div @click="toggleQueueExpanded(userQueue.user_id)" style="cursor: pointer; flex-grow: 1;">
+                                    <strong>{{ userQueue.user_name }}</strong>
+                                    <span class="badge bg-primary ms-2">{{ userQueue.count }}</span>
+                                </div>
+                                <div class="d-flex align-items-center gap-2">
+                                    <button class="btn btn-sm btn-outline-danger" @click.stop="clearUserQueue(userQueue.user_id)" title="Clear all items in this queue">
+                                        <i class="bi bi-trash"></i> Clear
+                                    </button>
+                                    <i class="bi" :class="expandedQueues[userQueue.user_id] ? 'bi-chevron-up' : 'bi-chevron-down'" @click="toggleQueueExpanded(userQueue.user_id)" style="cursor: pointer;"></i>
+                                </div>
+                            </div>
+                            <div v-if="expandedQueues[userQueue.user_id]" class="card-body py-2">
+                                <ul class="list-unstyled mb-0">
+                                    <li v-for="(item, index) in userQueue.items" :key="index" class="queue-item d-flex justify-content-between align-items-center">
+                                        <span class="small">{{ index + 1 }}. {{ item.query }}</span>
+                                        <button class="btn btn-sm btn-outline-danger" @click.stop="removeQueueItem(userQueue.user_id, index)">
+                                            <i class="bi bi-x"></i>
+                                        </button>
+                                    </li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div v-if="!queueStatus.active_streams?.length && !queueStatus.user_queues?.length" class="text-muted">
+                        Queue is empty
+                    </div>
+                </div>
+            </div>
+
             <!-- Button Editor Modal -->
             <div v-if="editingButton !== null" class="modal-overlay" @click.self="cancelButtonEdit" @keydown.esc="cancelButtonEdit" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
                 <div class="modal-dialog modal-dialog-centered" @click="showSoundDropdown = false">
@@ -381,58 +437,6 @@
                             <button type="button" class="btn btn-secondary" @click="cancelButtonEdit" @keydown.enter="cancelButtonEdit" tabindex="0">Cancel</button>
                             <button type="button" class="btn btn-primary" @click="saveButtonEdit" @keydown.enter="saveButtonEdit" tabindex="0">Save</button>
                         </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Queue Status -->
-            <div class="card mt-4">
-                <div class="card-header d-flex justify-content-between align-items-center">
-                    <h5 class="mb-0">Queue Status</h5>
-                    <button class="btn btn-sm btn-outline-primary" @click="refreshQueue">
-                        <i class="bi bi-arrow-clockwise"></i>
-                    </button>
-                </div>
-                <div class="card-body">
-                    <div v-if="queueStatus.active_streams && queueStatus.active_streams.length > 0" class="mb-3">
-                        <h6><i class="bi bi-music-note"></i> Currently Playing:</h6>
-                        <div v-for="stream in queueStatus.active_streams" :key="stream.user_id" class="alert alert-success">
-                            <strong>{{ stream.user_name }}</strong>: {{ stream.filepath.split('/').pop() }}
-                        </div>
-                    </div>
-                    
-                    <div v-if="queueStatus.user_queues && queueStatus.user_queues.length > 0">
-                        <h6><i class="bi bi-list-ul"></i> Queued Sounds:</h6>
-                        <p class="text-muted small">Total: {{ queueStatus.total_queued }} item(s)</p>
-                        
-                        <div v-for="userQueue in queueStatus.user_queues" :key="userQueue.user_id" class="card mb-2">
-                            <div class="card-header py-2 d-flex justify-content-between align-items-center">
-                                <div @click="toggleQueueExpanded(userQueue.user_id)" style="cursor: pointer; flex-grow: 1;">
-                                    <strong>{{ userQueue.user_name }}</strong>
-                                    <span class="badge bg-primary ms-2">{{ userQueue.count }}</span>
-                                </div>
-                                <div class="d-flex align-items-center gap-2">
-                                    <button class="btn btn-sm btn-outline-danger" @click.stop="clearUserQueue(userQueue.user_id)" title="Clear all items in this queue">
-                                        <i class="bi bi-trash"></i> Clear
-                                    </button>
-                                    <i class="bi" :class="expandedQueues[userQueue.user_id] ? 'bi-chevron-up' : 'bi-chevron-down'" @click="toggleQueueExpanded(userQueue.user_id)" style="cursor: pointer;"></i>
-                                </div>
-                            </div>
-                            <div v-if="expandedQueues[userQueue.user_id]" class="card-body py-2">
-                                <ul class="list-unstyled mb-0">
-                                    <li v-for="(item, index) in userQueue.items" :key="index" class="queue-item d-flex justify-content-between align-items-center">
-                                        <span class="small">{{ index + 1 }}. {{ item.query }}</span>
-                                        <button class="btn btn-sm btn-outline-danger" @click.stop="removeQueueItem(userQueue.user_id, index)">
-                                            <i class="bi bi-x"></i>
-                                        </button>
-                                    </li>
-                                </ul>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <div v-if="!queueStatus.active_streams?.length && !queueStatus.user_queues?.length" class="text-muted">
-                        Queue is empty
                     </div>
                 </div>
             </div>
