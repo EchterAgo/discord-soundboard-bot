@@ -4,9 +4,12 @@ import random
 import asyncio
 import subprocess
 import threading
+import time
 import discord
 from discord import app_commands
 from discord.ext import commands
+import json
+from functools import lru_cache
 
 from config import CONFIG_AUDIO_BASE_DIR
 from utils import caseless_in, find_files
@@ -15,6 +18,34 @@ from typing import Callable, Iterator, Optional, Dict
 import audioop
 
 _log = logging.getLogger(__name__)
+
+
+@lru_cache(maxsize=1024)
+def get_audio_duration(filepath: str) -> Optional[float]:
+    """Get audio duration in seconds using ffprobe.
+    
+    Args:
+        filepath: Path to audio file
+        
+    Returns:
+        Duration in seconds, or None if unable to determine
+    """
+    try:
+        args = [
+            'ffprobe',
+            '-v', 'error',
+            '-show_entries', 'format=duration',
+            '-of', 'json',
+            filepath
+        ]
+        result = subprocess.run(args, capture_output=True, text=True, timeout=5)
+        if result.returncode == 0:
+            data = json.loads(result.stdout)
+            duration = float(data.get('format', {}).get('duration', 0))
+            return duration if duration > 0 else None
+    except Exception as e:
+        _log.debug(f"Could not get duration for {filepath}: {e}")
+    return None
 
 
 def get_sounds() -> Iterator[str]:
@@ -38,27 +69,93 @@ class UserAudioStream:
         self.process: Optional[subprocess.Popen] = None
         self.finished = False
         self.after_callback: Optional[Callable[[], None]] = None
+        self.duration: Optional[float] = get_audio_duration(filepath)
+        self.current_time_us: int = 0  # Current playback position in microseconds
+        self.progress_thread: Optional[threading.Thread] = None
+        self.progress_stop_event = threading.Event()
         
     def start(self):
         """Start the FFmpeg process for this audio stream"""
+        import os
+        
+        # Create pipe for progress output
+        progress_r, progress_w = os.pipe()
+        
         args = [
             'ffmpeg',
             '-i', str(self.filepath),
+            '-progress', f'pipe:{progress_w}',  # Progress output to the write end of our pipe
+            '-stats_period', '0.1',  # Update progress every 100ms
             '-f', 's16le',
             '-ar', '48000',
             '-ac', '2',
+            '-bufsize', '64k',  # Smaller buffer for lower latency
             '-loglevel', 'warning',
             'pipe:1'
         ]
         try:
-            self.process = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            self.process = subprocess.Popen(
+                args,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                pass_fds=(progress_w,)
+            )
+            # Close write end in parent, keep read end
+            os.close(progress_w)
+            
+            # Start thread to read progress updates
+            self.progress_thread = threading.Thread(
+                target=self._read_progress,
+                args=(progress_r,),
+                daemon=True
+            )
+            self.progress_thread.start()
+            
         except FileNotFoundError:
             _log.error("FFmpeg not found! Please install FFmpeg to use audio mixing.")
+            os.close(progress_r)
+            os.close(progress_w)
             raise commands.CommandError("FFmpeg is required for audio playback")
         except Exception as e:
             _log.error(f"Failed to start FFmpeg: {e}", exc_info=True)
+            os.close(progress_r)
+            try:
+                os.close(progress_w)
+            except:
+                pass
             raise
         
+    def _read_progress(self, progress_fd: int):
+        """Read progress updates from ffmpeg in a background thread."""
+        import os
+        try:
+            with os.fdopen(progress_fd, 'r') as progress_file:
+                current_block = {}
+                for line in progress_file:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    
+                    if '=' in line:
+                        key, value = line.split('=', 1)
+                        current_block[key] = value
+                        
+                        # When we get out_time_us, update our position
+                        if key == 'out_time_us' and value != 'N/A':
+                            try:
+                                self.current_time_us = int(value)
+                            except ValueError:
+                                pass
+                        
+                        # Check if this block is complete
+                        if key == 'progress':
+                            current_block = {}
+                    
+                    if self.progress_stop_event.is_set():
+                        break
+        except Exception:
+            pass
+    
     def read(self, size: int) -> bytes:
         """Read audio data from the stream"""
         if self.finished or not self.process:
@@ -76,8 +173,26 @@ class UserAudioStream:
             self.finished = True
             return b''
     
+    def get_progress_percentage(self) -> Optional[float]:
+        """Calculate playback progress as percentage.
+        
+        Returns:
+            Progress percentage (0-100), or None if duration unknown
+        """
+        if not self.duration or self.duration <= 0:
+            return None
+        
+        elapsed_seconds = self.current_time_us / 1_000_000.0  # Convert microseconds to seconds
+        percentage = min(100.0, (elapsed_seconds / self.duration) * 100.0)
+        return round(percentage, 1)
+    
     def cleanup(self):
         """Clean up the FFmpeg process"""
+        # Stop progress thread
+        self.progress_stop_event.set()
+        if self.progress_thread and self.progress_thread.is_alive():
+            self.progress_thread.join(timeout=0.5)
+        
         if self.process:
             try:
                 self.process.kill()
@@ -126,7 +241,6 @@ class MixedAudioSource(discord.AudioSource):
             
             if not self.streams:
                 # No streams yet, but we're not finished - return silence to keep playing
-                _log.debug("No active streams in mixer, returning silence")
                 return b'\x00' * chunk_size
             
             mixed_audio = None
@@ -137,7 +251,6 @@ class MixedAudioSource(discord.AudioSource):
                     stream.cleanup()
                     # Deletion triggers ObservableDict callback
                     del self.streams[user_id]
-                    _log.debug(f"Stream finished for {stream.user_name} (ID: {user_id})")
                     # Signal that a stream finished
                     if self.stream_finished_event:
                         try:
@@ -162,7 +275,26 @@ class MixedAudioSource(discord.AudioSource):
                         # Mix using audioop
                         mixed_audio[:min_len] = audioop.add(bytes(mixed_audio[:min_len]), data[:min_len], 2)
                 else:
+                    # No more data - stream is finished
                     stream.finished = True
+                    stream.cleanup()
+                    # Deletion triggers ObservableDict callback
+                    del self.streams[user_id]
+                    _log.info(f"Stream finished for {stream.user_name} (ID: {user_id}) - no more data")
+                    # Signal that a stream finished
+                    if self.stream_finished_event:
+                        try:
+                            # Use call_soon_threadsafe since we're in a thread
+                            if self.event_loop:
+                                self.event_loop.call_soon_threadsafe(self.stream_finished_event.set)
+                        except Exception:
+                            pass
+                    # Also trigger the callback directly for immediate update
+                    if self.stream_changed_callback:
+                        try:
+                            self.stream_changed_callback()
+                        except Exception:
+                            pass
             
             # If no active streams, return silence to keep playing
             if mixed_audio is None:
@@ -345,20 +477,19 @@ class AudioPlayer(commands.Cog):
             return
         
         self.is_processing = True
-        _log.debug("Starting mixed audio playback system")
         
         try:
             # Get the current event loop to pass to the callback
             event_loop = asyncio.get_event_loop()
-            
+
             # Create mixed audio source with callback for stream changes
             def on_stream_changed():
                 # This gets called from the audio thread, so use call_soon_threadsafe
                 if self.queue_update_callback:
                     event_loop.call_soon_threadsafe(lambda: asyncio.create_task(self.queue_update_callback()))
-            
+
             self.mixed_source = MixedAudioSource(self.stream_finished_event, on_stream_changed, event_loop)
-            
+
             # Start the first stream(s) before starting playback
             async with self.process_lock:
                 for user_id in list(self.user_queues.keys()):
@@ -367,20 +498,18 @@ class AudioPlayer(commands.Cog):
                         item = queue.popleft()
                         filename = CONFIG_AUDIO_BASE_DIR / PurePosixPath(item.query)
                         self.mixed_source.add_stream(
-                            user_id, 
-                            str(filename), 
+                            user_id,
+                            str(filename),
                             item.user_name,
                             item.after
                         )
                         _log.info(f"Started playing '{item.query}' for {item.user_name}")
-            
-            # Start playback with the mixed source
+
             voice_client.play(self.mixed_source, after=lambda e: self._on_playback_done(e))
-            _log.debug("Mixed audio playback started")
-            
+
             # Process remaining queue items in background (don't await)
             asyncio.create_task(self.process_user_queues())
-            
+
         except Exception as e:
             _log.error(f"Error in mixed playback: {e}", exc_info=True)
             self.is_processing = False
@@ -398,25 +527,34 @@ class AudioPlayer(commands.Cog):
     async def process_user_queues(self):
         """Process all user queues and add sounds to the mixer"""
         try:
+            # Track last progress update time
+            last_progress_update = 0.0
+            progress_update_interval = 0.5  # Send progress updates every half second
+            
             while self.is_processing:
                 has_work = False
                 
+                # Check if we should send a progress update (throttled)
+                current_time = time.time()
+                if current_time - last_progress_update >= progress_update_interval:
+                    if self.mixed_source and self.mixed_source.streams:
+                        # Trigger queue update to send progress (throttled to 1/sec)
+                        if self.queue_update_callback:
+                            asyncio.create_task(self.queue_update_callback())
+                        last_progress_update = current_time
+                
                 async with self.process_lock:
-                    _log.debug(f"Checking queues: {len(self.user_queues)} users, mixer streams: {len(self.mixed_source.streams) if self.mixed_source else 0}")
-                    
                     # Check each user's queue
                     for user_id in list(self.user_queues.keys()):
                         queue = self.user_queues[user_id]
                         
                         if not queue:
                             # Remove empty queues
-                            _log.debug(f"Removing empty queue for user {user_id}")
                             del self.user_queues[user_id]
                             continue
                         
                         # Check if user already has an active stream
                         if self.mixed_source and user_id in self.mixed_source.streams:
-                            _log.debug(f"User {user_id} already has active stream")
                             has_work = True  # Still have active streams
                             continue  # User already playing, skip
                         
@@ -439,7 +577,6 @@ class AudioPlayer(commands.Cog):
                 
                 # Check active streams in mixer
                 if self.mixed_source:
-                    _log.debug(f"Active streams in mixer: {len(self.mixed_source.streams)}")
                     if self.mixed_source.streams:
                         has_work = True
                 
@@ -448,14 +585,12 @@ class AudioPlayer(commands.Cog):
                     async with self.process_lock:
                         # Double check - no queues and no active streams
                         if not self.user_queues and (not self.mixed_source or not self.mixed_source.streams):
-                            _log.debug("All queues empty and no active streams, stopping")
                             break
                 
                 # Wait for stream to finish or timeout
                 try:
                     await asyncio.wait_for(self.stream_finished_event.wait(), timeout=0.2)
                     self.stream_finished_event.clear()
-                    _log.debug("Stream finished event received")
                 except asyncio.TimeoutError:
                     pass  # Timeout is expected, just check again
         finally:
@@ -464,7 +599,6 @@ class AudioPlayer(commands.Cog):
                 self.mixed_source._finished = True
                 self.mixed_source.cleanup()
                 self.mixed_source = None
-            _log.debug("Queue processing complete")
 
     async def process_queue(self, voice_client):
         """Legacy method for compatibility - redirects to mixed playback"""
@@ -531,7 +665,6 @@ class AudioPlayer(commands.Cog):
         
         # Check if already connected and ready
         if guild.voice_client is not None and guild.voice_client.is_connected():
-            _log.debug("Already connected to voice channel")
             return guild.voice_client
         
         # Need to connect

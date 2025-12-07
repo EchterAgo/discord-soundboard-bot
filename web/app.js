@@ -42,6 +42,14 @@ function initWebSocket(onQueueUpdate, onFileListUpdate, onConfigUpdate) {
             
             // Handle queue updates
             if (data.type === 'queue_update') {
+                // Debug log to see active streams with progress
+                if (data.active_streams && data.active_streams.length > 0) {
+                    console.log('[Queue] Active streams:', data.active_streams.map(s => ({
+                        user: s.user_name,
+                        file: s.filepath.split('/').pop(),
+                        progress: s.progress
+                    })));
+                }
                 if (onQueueUpdate) {
                     onQueueUpdate(data);
                 }
@@ -59,7 +67,7 @@ function initWebSocket(onQueueUpdate, onFileListUpdate, onConfigUpdate) {
             // Handle config updates
             else if (data.type === 'config_update') {
                 if (onConfigUpdate) {
-                    onConfigUpdate(data.user_name, data.config);
+                    onConfigUpdate(data.user_name);
                 }
             }
             // Handle JSON-RPC responses
@@ -499,9 +507,7 @@ createApp({
                 
                 await rpcCall('play', params);
                 
-                // Reload config to get updated recent sounds
-                setTimeout(() => this.loadUserConfig(), 500);
-                this.refreshQueue();
+                // Queue and config updates are pushed via WebSocket
             } catch (error) {
                 console.error('Failed to play sound:', error);
                 alert('Failed to play sound: ' + error.message);
@@ -993,17 +999,21 @@ createApp({
                 console.log('[File List] Updated with', files.length, 'files');
                 this.allSounds = files;
             },
-            (user_name, config) => {
-                // Only update if the config is for the current user
+            async (user_name) => {
+                // Only fetch and update if the config is for the current user
                 if (this.username && user_name === this.username) {
-                    console.log('[Config] Updated from another instance');
-                    // Merge the config, preserving local-only state like editingButton
-                    this.config = {
-                        ...this.config,
-                        ...config
-                    };
-                    // Optionally show a notification
-                    console.log('[Config] Configuration reloaded from server');
+                    console.log('[Config] Update notification for current user, fetching config...');
+                    try {
+                        const config = await rpcCall('get_user_config', { user_name: this.username });
+                        // Merge the config, preserving local-only state like editingButton
+                        this.config = {
+                            ...this.config,
+                            ...config
+                        };
+                        console.log('[Config] Configuration reloaded from server');
+                    } catch (error) {
+                        console.error('[Config] Failed to fetch updated config:', error);
+                    }
                 }
             }
         );

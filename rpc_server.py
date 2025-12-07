@@ -159,12 +159,17 @@ def _build_queue_status(audio_player, guild):
     # Get active streams
     if audio_player.mixed_source:
         for user_id, stream in audio_player.mixed_source.streams.items():
-            status["active_streams"].append({
+            stream_info = {
                 "user_id": user_id,
                 "user_name": stream.user_name,
                 "filepath": stream.filepath,
                 "finished": stream.finished
-            })
+            }
+            # Add progress percentage if available
+            progress = stream.get_progress_percentage()
+            if progress is not None:
+                stream_info["progress"] = progress
+            status["active_streams"].append(stream_info)
     
     return status
 
@@ -204,16 +209,18 @@ async def broadcast_queue_update(bot, channelid):
         _log.error(f"Error broadcasting queue update: {e}", exc_info=True)
 
 
-async def broadcast_config_update(user_name: str, config: dict):
-    """Broadcast user config update to all connected WebSocket clients."""
+async def broadcast_config_update(user_name: str):
+    """Broadcast config change notification to all connected WebSocket clients.
+    
+    Clients will receive the username and should fetch the config themselves if needed.
+    """
     if not websocket_connections:
         return
     
     try:
         message = json.dumps({
             "type": "config_update",
-            "user_name": user_name,
-            "config": config
+            "user_name": user_name
         })
         
         disconnected = set()
@@ -227,7 +234,7 @@ async def broadcast_config_update(user_name: str, config: dict):
         # Remove disconnected clients
         websocket_connections.difference_update(disconnected)
         
-        _log.info(f"Broadcasted config update for {user_name} to {len(websocket_connections)} clients")
+        _log.info(f"Broadcasted config update notification for {user_name} to {len(websocket_connections)} clients")
         
     except Exception as e:
         _log.error(f"Error broadcasting config update: {e}", exc_info=True)
@@ -307,8 +314,9 @@ async def jsonrpc_play(context, channelid, query, interrupt=False, play_next=Fal
         queue_time = (time.time() - queue_start) * 1000
         _log.debug(f"[RPC] Sound queued in {queue_time:.2f}ms")
         
-        # Track in recent sounds
+        # Track in recent sounds and broadcast config update
         user_config.add_recent_sound(user_name, query)
+        await broadcast_config_update(user_name)
         
         # Broadcast queue update to WebSocket clients
         await broadcast_queue_update(bot, channelid)
@@ -484,8 +492,8 @@ async def jsonrpc_save_user_config(context, user_name: str, config: dict) -> Res
         
         success = user_config.save_user_config(user_name, config)
         if success:
-            # Broadcast config update to all connected clients
-            await broadcast_config_update(user_name, config)
+            # Broadcast config update notification to all connected clients
+            await broadcast_config_update(user_name)
             return Success("Configuration saved successfully")
         else:
             return Error(1, "Failed to save configuration")
@@ -528,8 +536,8 @@ async def jsonrpc_reset_user_config(context, user_name: str) -> Result:
         default_config = user_config.get_default_config()
         default_config["username"] = user_name
         user_config.save_user_config(user_name, default_config)
-        # Broadcast config update to all connected clients
-        await broadcast_config_update(user_name, default_config)
+        # Broadcast config update notification to all connected clients
+        await broadcast_config_update(user_name)
         return Success(default_config)
     except Exception as e:
         _log.error(f"Failed to reset user config for {user_name}: {e}", exc_info=True)
