@@ -187,6 +187,113 @@ async def jsonrpc_stop(context, channelid, user_name="RPC") -> Result:
         return Success("No playback to stop")
 
 
+@method(name="queue_status")
+async def jsonrpc_queue_status(context, channelid) -> Result:
+    """Get current queue status via JSON-RPC.
+    
+    Args:
+        channelid: Voice channel ID to check queue for
+    
+    Returns:
+        Queue status including all user queues and currently playing streams
+    """
+    bot = context.app["bot"]
+
+    channel = bot.get_channel(int(channelid))
+    if not channel:
+        return InvalidParams("Channel not found")
+
+    guild = channel.guild
+    
+    audio_player = bot.get_cog("AudioPlayer")
+    if not audio_player:
+        return Error(1, "Audio player cog not found")
+
+    status = {
+        "is_playing": audio_player.is_processing,
+        "connected": guild.voice_client is not None,
+        "user_queues": [],
+        "active_streams": [],
+        "total_queued": 0
+    }
+    
+    # Get user queues
+    for user_id, queue in audio_player.user_queues.items():
+        if queue:
+            queue_items = [{"query": item.query, "user_name": item.user_name} for item in queue]
+            status["user_queues"].append({
+                "user_id": user_id,
+                "user_name": queue[0].user_name if queue else "Unknown",
+                "count": len(queue),
+                "items": queue_items
+            })
+            status["total_queued"] += len(queue)
+    
+    # Get active streams
+    if audio_player.mixed_source:
+        for user_id, stream in audio_player.mixed_source.streams.items():
+            status["active_streams"].append({
+                "user_id": user_id,
+                "user_name": stream.user_name,
+                "filepath": stream.filepath,
+                "finished": stream.finished
+            })
+    
+    return Success(status)
+
+
+@method(name="remove_queue_item")
+async def jsonrpc_remove_queue_item(context, channelid, user_id, item_index) -> Result:
+    """Remove a specific item from a user's queue via JSON-RPC.
+    
+    Args:
+        channelid: Voice channel ID
+        user_id: User ID whose queue to modify
+        item_index: Index of the item to remove (0-based)
+    
+    Returns:
+        Success or error result
+    """
+    bot = context.app["bot"]
+
+    channel = bot.get_channel(int(channelid))
+    if not channel:
+        return InvalidParams("Channel not found")
+
+    guild = channel.guild
+    
+    audio_player = bot.get_cog("AudioPlayer")
+    if not audio_player:
+        return Error(1, "Audio player cog not found")
+
+    user_id = int(user_id)
+    item_index = int(item_index)
+    
+    # Check if user has a queue
+    if user_id not in audio_player.user_queues:
+        return Error(1, "User has no queued items")
+    
+    queue = audio_player.user_queues[user_id]
+    
+    # Validate index
+    if item_index < 0 or item_index >= len(queue):
+        return Error(1, f"Invalid item index: {item_index}")
+    
+    # Convert deque to list, remove item, convert back
+    queue_list = list(queue)
+    removed_item = queue_list.pop(item_index)
+    audio_player.user_queues[user_id].clear()
+    audio_player.user_queues[user_id].extend(queue_list)
+    
+    # Clean up empty queue
+    if not audio_player.user_queues[user_id]:
+        del audio_player.user_queues[user_id]
+    
+    _log.info(f"Removed queue item '{removed_item.query}' at index {item_index} for user {user_id}")
+    
+    return Success(f"Removed '{removed_item.query}' from queue")
+
+
 @method(name="message")
 async def jsonrpc_message(context, channelid, content) -> Result:
     bot = context.app["bot"]

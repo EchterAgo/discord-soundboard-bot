@@ -73,6 +73,27 @@
             <div class="col-sm-2">
                 <button onclick="playFile('ago/nudelfrucht.mp3')">Die Nudel-Frucht</button>
             </div>
+
+        <!-- Queue Status Section -->
+        <div class="row mt-4 mb-3">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0">
+                            Queue Status
+                            <span id="status-badge" class="badge badge-secondary float-right ml-2">Not Connected</span>
+                            <button onclick="refreshQueue()" class="btn btn-sm btn-outline-primary float-right" title="Refresh queue">
+                                🔄
+                            </button>
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <div id="queue-container">
+                            <p class="text-muted">Loading queue information...</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 </body>
