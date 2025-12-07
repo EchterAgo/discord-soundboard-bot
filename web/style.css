@@ -2,3 +2,69 @@
     margin: 1mm;
     cursor: url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABgAAAAYCAMAAADXqc3KAAABO1BMVEUAAAAAAAAAAAD9/f0tLS339/cAAADLy8uSkpIAAAD+/v4AAADv7+/x8fH8/PwAAAAAAAAAAAAAAAD09PT6+voAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD7+/vx8fEAAABeXl7Nzc37+/sAAAC/v78AAAAAAAB9fX0oKCgBAQEWFhYAAADU1NRkZGQsLCxra2sAAAAAAAAAAAAAAADu7u7+/v7c3Nz////29vZ/f3/29vbf39+4uLi9vb36+vrHx8cAAACTk5P8/Pz5+fkqKipgYGB6enofHx+Xl5fV1dUtLS3Dw8PZ2dlMTEwoKCiPj4/Ly8vZ2dnf398iIiJhYWEqKirOzs7r6+usrKxKSko2NjYAAABLS0sAAACoqKgAAAAAAAAAAAAAAAD///+6urq7u7toSEDxAAAAZnRSTlMAVDX+uN2X1qml+pzw7Nu+tIJO5uOtmZGLfzkwJyEQCvHg4NnY18/JxcK/v7ipoaCakYhFLR0V9O7p6OXk3t3c29ra1dLQ0M/LysrGwL25t7a0srGvrqejlIyFgX16eXFwZmNJPjT2T6siAAABGUlEQVQoz22S5XLDMBCE7YIaGWLHbCdpGBumMjMzM6l9/yeoosYax/H+0dx+c6c5rRifFMOKMQH6ymRblWlaxt8+BoV9gcIzUdfvyuV9/p9EQmh8YswFn1tzizAWANhfNMl3gsAPBqzS6TltMAJgydJlaKZHO+a3Tw5SuXIIccMArDxV83dNSWo+S8PAzmSniBrpby8wXpYQEV7Q2xFuRPKrs4IgaL7LUepWh7XNIv/uB0hTH6rndVHzbY7FFW44fHiBcriAjWVQRwQc09d1QA4bIhAJ4Ha7NA7YtwRLJeCxQnNKmAVsJK+SfX9nj2WoosV75K7XqiU8UbOly3UyX32V44xXbQg2Tq+P1s4M/x/pKaYs6bZD5/wBVONB5zflaGsAAAAASUVORK5CYII='),pointer;
 }
+
+/* Queue Status Styling */
+#queue-container {
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+#queue-container .card {
+    border-left: 3px solid #007bff;
+}
+
+#queue-container .alert-success {
+    border-left: 4px solid #28a745;
+    background-color: #d4edda;
+    animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+    0%, 100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.8;
+    }
+}
+
+#queue-container ol {
+    margin-bottom: 0;
+}
+
+#queue-container .small {
+    font-size: 0.875rem;
+}
+
+.card-header {
+    background-color: #f8f9fa;
+    font-weight: 500;
+}
+
+/* Queue item styling */
+.queue-item {
+    padding: 0.25rem 0;
+    transition: background-color 0.2s;
+}
+
+.queue-item:hover {
+    background-color: #f8f9fa;
+    border-radius: 0.25rem;
+}
+
+.queue-item .btn-outline-danger {
+    padding: 0.1rem 0.4rem;
+    font-size: 0.875rem;
+    line-height: 1;
+    border-radius: 0.2rem;
+    opacity: 0.6;
+    transition: opacity 0.2s;
+}
+
+.queue-item:hover .btn-outline-danger {
+    opacity: 1;
+}
+
+.queue-item .btn-outline-danger:hover {
+    transform: scale(1.1);
+}
