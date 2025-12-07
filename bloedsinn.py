@@ -3,8 +3,9 @@ import io
 import logging
 from pathlib import Path
 import random
-import nextcord
-from nextcord.ext import commands, tasks
+import discord
+from discord import app_commands
+from discord.ext import commands, tasks
 import matplotlib.pyplot as plt
 from llm import talk_to_gpt
 
@@ -12,24 +13,25 @@ from llm import talk_to_gpt
 _log = logging.getLogger(__name__)
 
 
-class Bloedsinn(commands.Cog, name="Blödsinn"):
-    img_path: Path = None
+class Bloedsinn(commands.Cog):
+    img_path: Path
 
     def __init__(self, bot):
         self.img_path = Path(__file__).resolve().parent / "images"
         self.bot = bot
 
-    @nextcord.slash_command(
+    @app_commands.command(
         name="hammerzeit",
         description="Hammerzeit!",
     )
-    async def hammerzeit(self, interaction: nextcord.Interaction):
-        image_file = nextcord.File(self.img_path / "hammerzeit.png")
+    async def hammerzeit(self, interaction: discord.Interaction):
+        image_file = discord.File(self.img_path / "hammerzeit.png")
         await interaction.response.send_message("**HALT, HAMMERZEIT!**", file=image_file)
 
-    @nextcord.slash_command(name="gembo", description="Gembo!")
-    async def gembo(self, interaction: nextcord.Interaction, straub_fudge: float = 1.0):
-        started_message = await interaction.response.send_message("Gembo wird berechnet, bitte warten...")
+    @app_commands.command(name="gembo", description="Gembo!")
+    @app_commands.describe(straub_fudge="Straub fudge factor")
+    async def gembo(self, interaction: discord.Interaction, straub_fudge: float = 1.0):
+        await interaction.response.send_message("Gembo wird berechnet, bitte warten...")
 
         min_value = 1
         max_value = 999999999
@@ -79,13 +81,13 @@ class Bloedsinn(commands.Cog, name="Blödsinn"):
         plt.close()
         plot_buffer.seek(0)
 
-        discord_plot_file = nextcord.File(fp=plot_buffer, filename="gembo.png")
+        discord_plot_file = discord.File(fp=plot_buffer, filename="gembo.png")
 
-        await started_message.edit(
+        await interaction.edit_original_response(
             content=f"Gembe = {gembe}\n Straub = {straub}\n Wurde der Gembe zum Straub gemacht? {gembe  == straub}\n"
             f"Ist der Straub größer als der Gembe? {straub > gembe}\n"
             f"{ratio_name} ist bei {(straub / gembe) * 100.0:.2f}%",
-            file=discord_plot_file,
+            attachments=[discord_plot_file],
         )
 
         # await started_message.delete_original_response()
@@ -96,12 +98,12 @@ class Bloedsinn(commands.Cog, name="Blödsinn"):
         #     file=discord_plot_file
         # )
 
-    @nextcord.slash_command(name="gog", description="GoG!")
-    async def gog(self, interaction: nextcord.Interaction):
+    @app_commands.command(name="gog", description="GoG!")
+    async def gog(self, interaction: discord.Interaction):
         await interaction.response.send_message(" ".join([f"g{'o' * random.randint(10, 30)}g" for i in range(0, random.randint(1, 6))]))
 
-    @nextcord.slash_command(description="Der Weg")
-    async def weg(self, interaction: nextcord.Interaction):
+    @app_commands.command(name="weg", description="Der Weg")
+    async def weg(self, interaction: discord.Interaction):
         image_file_names = [
             "weg1.jpg",
             "weg2.jpg",
@@ -115,11 +117,11 @@ class Bloedsinn(commands.Cog, name="Blödsinn"):
             "weg10.jpg",
         ]
 
-        image_file = nextcord.File(self.img_path / random.choice(image_file_names))
+        image_file = discord.File(self.img_path / random.choice(image_file_names))
         await interaction.response.send_message(f"Das ist der Weg!!!!!111einseinseins", file=image_file)
 
-    @nextcord.slash_command(description="Der falsche Weg")
-    async def fweg(self, interaction: nextcord.Interaction):
+    @app_commands.command(name="fweg", description="Der falsche Weg")
+    async def fweg(self, interaction: discord.Interaction):
         image_file_names = [
             "falscherweg1.jpg",
             "falscherweg2.jpg",
@@ -129,27 +131,31 @@ class Bloedsinn(commands.Cog, name="Blödsinn"):
             "falscherweg6.jpg",
         ]
 
-        image_file = nextcord.File(self.img_path / random.choice(image_file_names))
+        image_file = discord.File(self.img_path / random.choice(image_file_names))
         await interaction.response.send_message(f"Das ist nicht der Weg!!!!!111einseinseins", file=image_file)
 
-    @nextcord.slash_command(description="Schluss mit Lustig")
-    async def lustig(self, interaction: nextcord.Interaction):
+    @app_commands.command(name="lustig", description="Schluss mit Lustig")
+    async def lustig(self, interaction: discord.Interaction):
         image_file_names = [
             "lustig1.webp",
             "lustig2.png",
             "lustig3.jpg",
         ]
 
-        image_file = nextcord.File(self.img_path / random.choice(image_file_names))
+        image_file = discord.File(self.img_path / random.choice(image_file_names))
         await interaction.response.send_message(f"Schluss mit Lustig!", file=image_file)
 
-    @nextcord.slash_command(description="Passworttest", guild_ids=[1033659963580633088])
-    async def passworttest(self, interaction: nextcord.Interaction, passwort: str):
-        await interaction.response.send_message(f"Ist \"{passwort}\" ein gutes Passwort? Nein, du hast es in Discord gepostet!!11eins")
+    @app_commands.command(name="passworttest", description="Passworttest")
+    @app_commands.describe(passwort="Dein Passwort")
+    @app_commands.guilds(1033659963580633088)
+    async def passworttest(self, interaction: discord.Interaction, passwort: str):
+        await interaction.response.send_message(f'Ist "{passwort}" ein gutes Passwort? Nein, du hast es in Discord gepostet!!11eins')
 
-    @nextcord.slash_command(description="Straubenstraub", guild_ids=[1033659963580633088])
-    async def straubenstraub(self, interaction: nextcord.Interaction, add_inst: str = None):
-        started_message = await interaction.response.send_message("Straubenstraub wird erstellt, bitte warten...")
+    @app_commands.command(name="straubenstraub", description="Straubenstraub")
+    @app_commands.describe(add_inst="Additional instructions (optional)")
+    @app_commands.guilds(1033659963580633088)
+    async def straubenstraub(self, interaction: discord.Interaction, add_inst: str = ""):
+        await interaction.response.send_message("Straubenstraub wird erstellt, bitte warten...")
 
         async def task_func():
             try:
@@ -180,10 +186,10 @@ class Bloedsinn(commands.Cog, name="Blödsinn"):
                 if not response_text:
                     response_text = "**ERROR**: No response generated by Nano-GPT"
 
-                await started_message.edit(content=response_text)
+                await interaction.edit_original_response(content=response_text)
             except Exception as e:
                 _log.error("An unexpected error occurred", exc_info=True)
-                await started_message.edit(content=f"**ERROR**: {e}")
+                await interaction.edit_original_response(content=f"**ERROR**: {e}")
 
         asyncio.create_task(task_func())
         # task = tasks.loop(seconds=0, count=1)(task_func)

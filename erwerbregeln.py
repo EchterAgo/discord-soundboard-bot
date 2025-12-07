@@ -1,6 +1,7 @@
 import random
-import nextcord
-from nextcord.ext import commands
+import discord
+from discord import app_commands
+from discord.ext import commands
 
 # fmt: off
 
@@ -68,15 +69,16 @@ REGELN_DES_ERWERBS = [
 # fmt: on
 
 
-class RegelnDesErwerbs(commands.Cog, name="Regeln des Erwerbs"):
+class RegelnDesErwerbs(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @nextcord.slash_command(
+    @app_commands.command(
         name="erwerbsregel",
         description="Regeln des Erwerbs",
     )
-    async def erwerbsregel(self, interaction: nextcord.Interaction, nummer: int = -1, text: str = None):
+    @app_commands.describe(nummer="Regel Nummer (optional)", text="Regel Text (optional)")
+    async def erwerbsregel(self, interaction: discord.Interaction, nummer: int = -1, text: str = None):
         if text:
             regel = (nummer, text)
         else:

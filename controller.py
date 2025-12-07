@@ -1,8 +1,8 @@
-from nextcord.ext import commands
+from discord.ext import commands
 import requests
 
 
-class Controller(commands.Cog, name="Controller"):
+class Controller(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 

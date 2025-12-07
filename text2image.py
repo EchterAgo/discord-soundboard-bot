@@ -6,8 +6,9 @@ import logging
 from typing import Optional
 
 import aiohttp
-import nextcord
-from nextcord.ext import commands, tasks
+import discord
+from discord import app_commands
+from discord.ext import commands, tasks
 
 from config import CONFIG_NANOGPT_API_KEY, CONFIG_NANOGPT_BASE_URL
 
@@ -91,50 +92,50 @@ async def generate_image(
             return img
 
 
-class TextToImage(commands.Cog, name="Generates images from text prompts"):
+class TextToImage(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @nextcord.slash_command(name="genimg", description="Generates images from text prompts", guild_ids=[1033659963580633088])
+    @app_commands.command(name="genimg", description="Generates images from text prompts")
+    @app_commands.describe(
+        prompt="Text prompt",
+        model="Pick a model!",
+        negative_prompt="Negative prompt (optional)"
+    )
+    @app_commands.guilds(1033659963580633088)
     async def genimg(
         self,
-        interaction: nextcord.Interaction,
+        interaction: discord.Interaction,
         prompt: str,
-        model: str = nextcord.SlashOption(
-            required=True,
-            description="Pick a model!",
-            autocomplete=True,
-            default="sd3_base_medium.safetensors",  # before was epicrealism_naturalSinRC1VAE_106430.safetensors
-        ),
+        model: str = "sd3_base_medium.safetensors",
         negative_prompt: str = "(deformed iris, deformed pupils, semi-realistic, cgi, 3d, render, sketch, cartoon, drawing, anime:1.4), text, close up, cropped, out of frame, worst quality, low quality, jpeg artifacts, duplicate, extra fingers, mutated hands, poorly drawn hands, poorly drawn face, mutation, deformed, blurry, dehydrated, bad anatomy, bad proportions, extra limbs, cloned face, disfigured, gross proportions, malformed limbs, missing arms, missing legs, extra arms, extra legs, fused fingers, too many fingers, long neck",
     ):
-        started_message = await interaction.response.send_message("Generating image, please wait...")
+        await interaction.response.send_message("Generating image, please wait...")
 
         async def task_func():
             try:
                 image = await generate_image(prompt=prompt, model=model, negative_prompt=negative_prompt)
                 image_hash = hashlib.sha256(image).hexdigest()
-                image_file = nextcord.File(BytesIO(image), filename=f"{image_hash}.jpg")
-                await started_message.edit(content=f"Prompt: {prompt}", file=image_file)
+                image_file = discord.File(BytesIO(image), filename=f"{image_hash}.jpg")
+                await interaction.edit_original_response(content=f"Prompt: {prompt}", attachments=[image_file])
             except Exception as e:
                 _log.error("An unexpected error occurred", exc_info=True)
-                await started_message.edit(content=f"**ERROR**: {e}")
+                await interaction.edit_original_response(content=f"**ERROR**: {e}")
 
         asyncio.create_task(task_func())
 
-    @genimg.on_autocomplete("model")
-    async def autocomplete_models(self, interaction: nextcord.Interaction, item: str):
-        await interaction.response.send_autocomplete(
-            [
-                "flux-pro",
-                "flux-realism",
-                "flux/schnell",
-                "playground-v2.5",
-                "proteus-v0.2",
-                "realisticVisionV51_v51VAE_94301.safetensors",
-                "uberRealisticPornMerge_urpmv12_4979.safetensors",
-                "sd3_base_medium.safetensors",
-                "dreamshaper_8_93211.safetensors",
-                "revAnimated_v122.safetensors",
-            ][:25]
-        )
+    @genimg.autocomplete('model')
+    async def autocomplete_models(self, interaction: discord.Interaction, current: str):
+        choices = [
+            "flux-pro",
+            "flux-realism",
+            "flux/schnell",
+            "playground-v2.5",
+            "proteus-v0.2",
+            "realisticVisionV51_v51VAE_94301.safetensors",
+            "uberRealisticPornMerge_urpmv12_4979.safetensors",
+            "sd3_base_medium.safetensors",
+            "dreamshaper_8_93211.safetensors",
+            "revAnimated_v122.safetensors",
+        ][:25]
+        return [app_commands.Choice(name=choice, value=choice) for choice in choices]

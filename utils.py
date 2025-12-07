@@ -1,12 +1,13 @@
-import os
 import typing
 import unicodedata
+from pathlib import Path
 
 
-def find_files(path: str) -> typing.Iterator[str]:
-    for root, _, files in os.walk(path, topdown=True):
-        for file in files:
-            yield os.path.relpath(os.path.join(root, file), path)
+def find_files(path: Path) -> typing.Iterator[str]:
+    path = Path(path)
+    for file_path in path.rglob('*'):
+        if file_path.is_file():
+            yield str(file_path.relative_to(path))
 
 
 # From https://stackoverflow.com/a/29247821

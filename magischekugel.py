@@ -1,6 +1,7 @@
 import random
-import nextcord
-from nextcord.ext import commands
+import discord
+from discord import app_commands
+from discord.ext import commands
 
 
 class MagischeKugel(commands.Cog):
@@ -24,7 +25,8 @@ class MagischeKugel(commands.Cog):
             "Zweifelhaft.",
         ]
 
-    @nextcord.slash_command(name="magischekugel", description="Stelle der Magischen Kugel eine Frage.")
-    async def magischekugel(self, interaction: nextcord.Interaction, frage: str):
+    @app_commands.command(name="magischekugel", description="Stelle der Magischen Kugel eine Frage.")
+    @app_commands.describe(frage="Deine Frage")
+    async def magischekugel(self, interaction: discord.Interaction, frage: str):
         response = random.choice(self.responses)
         await interaction.response.send_message(f"🔮 Frage: {frage}\nAntwort: {response}")

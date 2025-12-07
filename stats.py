@@ -1,10 +1,11 @@
 from datetime import datetime, timedelta
 import time
-import nextcord
-from nextcord.ext import commands
+import discord
+from discord import app_commands
+from discord.ext import commands
 
 
-class Statistics(commands.Cog, name="Statistiken"):
+class Statistics(commands.Cog):
     start_time: datetime
 
     @staticmethod
@@ -15,11 +16,12 @@ class Statistics(commands.Cog, name="Statistiken"):
         self.start_time = self._now_no_us()
         self.bot = bot
 
-    @nextcord.slash_command(
+    @app_commands.command(
         name="uptime",
         description="Uptime!",
     )
-    async def uptime(self, interaction: nextcord.Interaction, fudge_hours: int = 0, fudge_days: int = 0):
+    @app_commands.describe(fudge_hours="Fudge hours", fudge_days="Fudge days")
+    async def uptime(self, interaction: discord.Interaction, fudge_hours: int = 0, fudge_days: int = 0):
         elapsed = self._now_no_us() - self.start_time
 
         if fudge_days > 0:

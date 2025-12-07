@@ -18,14 +18,25 @@
 <body>
     <h1>Discord Soundboard</h1>
     <div class="container-fluid">
-        <div class="row">
+        <div class="row mb-2">
             <div class="col-sm-2">
+                <label for="username">Username:</label>
+            </div>
+            <div class="col-sm-4">
+                <input type="text" id="username" name="username" class="form-control" placeholder="Enter your name" onchange="saveUsername()">
+            </div>
+        </div>
+        <div class="row">
+            <div class="col-sm-7">
                 <input type="text" id="fname" name="fname" class="form-control" autocomplete="off" onkeydown="playIfEnter(event)">
             </div>
-            <div class="col-sm-2">
+            <div class="col-1">
                 <button onclick="playSpecifiedFile()">Play</button>
             </div>
-            <div class="col-sm-2">
+            <div class="col-1">
+                <button onclick="stopPlayback()">Stop</button>
+            </div>
+            <div class="col-1">
                 <button onclick="fetchAutoComplete()">Update</button>
             </div>
         </div>

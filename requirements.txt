@@ -1,4 +1,4 @@
-nextcord[voice,speed]
+discord.py[voice,speed]
 requests
 jsonrpcserver
 matplotlib
