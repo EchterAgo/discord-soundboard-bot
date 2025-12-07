@@ -100,7 +100,11 @@ createApp({
             selectedSearchIndex: -1,
             wakeLock: null,
             editMode: false,
-            expandedQueues: {}
+            expandedQueues: {},
+            modifierKeys: {
+                ctrl: false,
+                shift: false
+            }
         };
     },
     computed: {
@@ -117,7 +121,18 @@ createApp({
                 queue: { label: 'Queue', icon: 'bi-list-ul', color: 'primary' },
                 next: { label: 'Play Next', icon: 'bi-skip-forward-fill', color: 'warning' }
             };
-            return modes[this.playMode];
+            
+            // Show effective mode based on modifier keys
+            let effectiveMode = this.playMode;
+            if (this.modifierKeys.ctrl && this.modifierKeys.shift) {
+                effectiveMode = 'next';
+            } else if (this.modifierKeys.ctrl) {
+                effectiveMode = 'instant';
+            } else if (this.modifierKeys.shift) {
+                effectiveMode = 'queue';
+            }
+            
+            return modes[effectiveMode];
         },
         filteredSounds() {
             return this.filterAndPrioritize(this.searchQuery, this.allSounds);
@@ -129,6 +144,27 @@ createApp({
         }
     },
     methods: {
+        handleKeyDown(event) {
+            if (event.key === 'Control') {
+                this.modifierKeys.ctrl = true;
+            } else if (event.key === 'Shift') {
+                this.modifierKeys.shift = true;
+            }
+        },
+        
+        handleKeyUp(event) {
+            if (event.key === 'Control') {
+                this.modifierKeys.ctrl = false;
+            } else if (event.key === 'Shift') {
+                this.modifierKeys.shift = false;
+            }
+        },
+        
+        resetModifiers() {
+            this.modifierKeys.ctrl = false;
+            this.modifierKeys.shift = false;
+        },
+        
         filterAndPrioritize(query, sounds) {
             const lowerQuery = query ? query.toLowerCase() : '';
             const filtered = query ? sounds.filter(sound => sound.toLowerCase().includes(lowerQuery)) : sounds;
@@ -227,7 +263,7 @@ createApp({
             localStorage.setItem('playMode', this.playMode);
         },
         
-        async playSound(query) {
+        async playSound(query, event = null) {
             if (!this.username) {
                 alert('Please enter a username first');
                 return;
@@ -240,10 +276,23 @@ createApp({
                     query: query
                 };
                 
-                // Set interrupt and play_next based on playMode
-                if (this.playMode === 'instant') {
+                // Determine play mode based on modifier keys or current playMode
+                // Ctrl = instant, Shift = queue, Ctrl+Shift = next
+                let effectiveMode = this.playMode;
+                if (event) {
+                    if (event.ctrlKey && event.shiftKey) {
+                        effectiveMode = 'next';
+                    } else if (event.ctrlKey) {
+                        effectiveMode = 'instant';
+                    } else if (event.shiftKey) {
+                        effectiveMode = 'queue';
+                    }
+                }
+                
+                // Set interrupt and play_next based on effective mode
+                if (effectiveMode === 'instant') {
                     params.interrupt = true;
-                } else if (this.playMode === 'next') {
+                } else if (effectiveMode === 'next') {
                     params.play_next = true;
                 }
                 // Default (queue mode) sets neither flag
@@ -677,6 +726,11 @@ createApp({
                 this.selectedSearchIndex = -1;
             }
         });
+        
+        // Track modifier keys globally for play mode indication
+        window.addEventListener('keydown', this.handleKeyDown);
+        window.addEventListener('keyup', this.handleKeyUp);
+        window.addEventListener('blur', this.resetModifiers);
     },
     
     beforeUnmount() {
@@ -685,5 +739,10 @@ createApp({
             this.sortable.destroy();
         }
         this.releaseWakeLock();
+        
+        // Clean up modifier key listeners
+        window.removeEventListener('keydown', this.handleKeyDown);
+        window.removeEventListener('keyup', this.handleKeyUp);
+        window.removeEventListener('blur', this.resetModifiers);
     }
 }).mount('#app');

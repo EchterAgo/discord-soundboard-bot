@@ -172,8 +172,9 @@
                         <button 
                             class="sound-button btn w-100 h-100"
                             :class="'btn-' + (button.color || 'primary')"
-                            @click="playSound(button.sound)"
-                            @contextmenu.prevent="editButton(index)">
+                            @click="playSound(button.sound, $event)"
+                            @contextmenu.prevent="editButton(index)"
+                            :title="'Click to play | Ctrl: instant | Shift: queue | Ctrl+Shift: next'">
                             <div class="button-label">{{ button.label || button.sound }}</div>
                             <button v-if="editMode" class="btn-remove" @click.stop="removeButton(index)" title="Remove">
                                 <i class="bi bi-x-circle"></i>
@@ -191,7 +192,8 @@
                 <div class="sound-grid" :style="gridStyle">
                     <div v-for="(sound, index) in config.recent_sounds" :key="sound" class="sound-button-container">
                         <button class="sound-button btn btn-outline-secondary w-100 h-100"
-                                @click="playSound(sound)">
+                                @click="playSound(sound, $event)"
+                                :title="'Click to play | Ctrl: instant | Shift: queue | Ctrl+Shift: next'">
                             <div class="button-label">{{ sound }}</div>
                             <button v-if="editMode" class="btn-remove" @click.stop="removeRecentSound(index)" title="Remove">
                                 <i class="bi bi-x-circle"></i>
@@ -206,9 +208,9 @@
                 <div class="sound-grid" :style="gridStyle">
                     <button v-for="sound in filteredSounds" :key="sound" 
                             class="sound-button btn btn-outline-primary"
-                            @click="playSound(sound)"
+                            @click="playSound(sound, $event)"
                             @contextmenu.prevent="addButtonFromSound(sound)"
-                            :title="'Right-click to add to custom buttons'">
+                            :title="'Click to play | Ctrl: instant | Shift: queue | Ctrl+Shift: next | Right-click to add to custom buttons'">
                         <div class="button-label">{{ sound }}</div>
                     </button>
                 </div>
