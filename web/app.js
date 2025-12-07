@@ -87,6 +87,7 @@ createApp({
             },
             searchQuery: '',
             showSettings: false,
+            showHelp: false,
             activeView: 'buttons', // 'buttons', 'recent', 'all'
             editingButton: null,
             buttonColors: ['primary', 'secondary', 'success', 'danger', 'warning', 'info', 'dark'],
@@ -104,7 +105,8 @@ createApp({
             modifierKeys: {
                 ctrl: false,
                 shift: false
-            }
+            },
+            focusedButtonIndex: -1
         };
     },
     computed: {
@@ -149,6 +151,92 @@ createApp({
                 this.modifierKeys.ctrl = true;
             } else if (event.key === 'Shift') {
                 this.modifierKeys.shift = true;
+            }
+        },
+        
+        handleButtonKeydown(event, sound, index) {
+            console.log('handleButtonKeydown called:', event.key, 'sound:', sound, 'index:', index);
+            
+            const isCustomView = this.activeView === 'buttons';
+            const isRecentView = this.activeView === 'recent';
+            const isAllView = this.activeView === 'all';
+            
+            // Get the total number of buttons in current view
+            let totalButtons;
+            if (isCustomView) {
+                totalButtons = this.config.buttons.length;
+            } else if (isRecentView) {
+                totalButtons = this.config.recent_sounds.length;
+            } else {
+                totalButtons = this.filteredSounds.length;
+            }
+            
+            console.log('Total buttons:', totalButtons, 'cols:', this.config.grid_size.cols);
+            
+            const cols = this.config.grid_size.cols;
+            
+            // Handle Enter and Space to play sound
+            if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                event.stopPropagation();
+                console.log('Playing sound:', sound);
+                this.playSound(sound, event);
+                return;
+            }
+            
+            // Handle arrow key navigation
+            let newIndex = index;
+            let handled = false;
+            
+            switch(event.key) {
+                case 'ArrowRight':
+                    event.preventDefault();
+                    newIndex = index < totalButtons - 1 ? index + 1 : index;
+                    handled = true;
+                    break;
+                case 'ArrowLeft':
+                    event.preventDefault();
+                    newIndex = index > 0 ? index - 1 : index;
+                    handled = true;
+                    break;
+                case 'ArrowDown':
+                    event.preventDefault();
+                    newIndex = index + cols < totalButtons ? index + cols : index;
+                    handled = true;
+                    break;
+                case 'ArrowUp':
+                    event.preventDefault();
+                    newIndex = index - cols >= 0 ? index - cols : index;
+                    handled = true;
+                    break;
+                case 'Home':
+                    event.preventDefault();
+                    newIndex = 0;
+                    handled = true;
+                    break;
+                case 'End':
+                    event.preventDefault();
+                    newIndex = totalButtons - 1;
+                    handled = true;
+                    break;
+            }
+            
+            // Focus the new button if we handled a navigation key
+            if (handled) {
+                console.log('Moving from index', index, 'to', newIndex);
+                if (newIndex !== index) {
+                    this.$nextTick(() => {
+                        const buttons = document.querySelectorAll('[data-button-index]');
+                        console.log('Found', buttons.length, 'buttons with data-button-index');
+                        if (buttons[newIndex]) {
+                            buttons[newIndex].focus();
+                            this.focusedButtonIndex = newIndex;
+                            console.log('Focused button at index', newIndex);
+                        } else {
+                            console.log('Could not find button at index', newIndex);
+                        }
+                    });
+                }
             }
         },
         
@@ -360,6 +448,13 @@ createApp({
             }
         },
         
+        handleSearchBlur(event) {
+            // Use setTimeout to allow click events on dropdown items and buttons to fire first
+            setTimeout(() => {
+                this.showSearchDropdown = false;
+            }, 150);
+        },
+        
         scrollToSearchSelected() {
             this.$nextTick(() => {
                 const dropdown = document.querySelector('.search-dropdown');
@@ -412,6 +507,31 @@ createApp({
             }
         },
         
+        async clearUserQueue(userId) {
+            // Find the user queue to get the user name for confirmation
+            const userQueue = this.queueStatus.user_queues.find(q => q.user_id === userId);
+            const userName = userQueue ? userQueue.user_name : 'this user';
+            
+            if (!confirm(`Clear all ${userQueue.count} items from ${userName}'s queue?`)) {
+                return;
+            }
+            
+            try {
+                // Remove items from the end to avoid index shifting issues
+                for (let i = userQueue.items.length - 1; i >= 0; i--) {
+                    await rpcCall('remove_queue_item', {
+                        channelid: DISCORD_VOICE_CHANNEL_ID,
+                        user_id: userId,
+                        item_index: i
+                    });
+                }
+                await this.refreshQueue();
+            } catch (error) {
+                console.error('Failed to clear user queue:', error);
+                alert('Failed to clear queue: ' + error.message);
+            }
+        },
+        
         addNewButton() {
             const newButton = {
                 id: Date.now(),
@@ -431,6 +551,8 @@ createApp({
                     this.$refs.labelInput.focus();
                     this.$refs.labelInput.select();
                 }
+                // Setup focus trap in modal
+                this.setupModalFocusTrap();
             });
         },
         
@@ -455,9 +577,50 @@ createApp({
                     this.$refs.labelInput.focus();
                     this.$refs.labelInput.select();
                 }
+                // Setup focus trap in modal
+                this.setupModalFocusTrap();
             });
             this.showSoundDropdown = false;
             this.selectedSoundIndex = -1;
+        },
+        
+        setupModalFocusTrap() {
+            const modal = document.querySelector('.modal-content');
+            if (!modal) return;
+            
+            const focusableElements = modal.querySelectorAll(
+                'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+            );
+            const firstFocusable = focusableElements[0];
+            const lastFocusable = focusableElements[focusableElements.length - 1];
+            
+            const handleTabKey = (e) => {
+                if (e.key !== 'Tab') return;
+                
+                if (e.shiftKey) {
+                    if (document.activeElement === firstFocusable) {
+                        e.preventDefault();
+                        lastFocusable.focus();
+                    }
+                } else {
+                    if (document.activeElement === lastFocusable) {
+                        e.preventDefault();
+                        firstFocusable.focus();
+                    }
+                }
+            };
+            
+            // Store handler reference for cleanup
+            modal._focusTrapHandler = handleTabKey;
+            modal.addEventListener('keydown', handleTabKey);
+        },
+        
+        cleanupModalFocusTrap() {
+            const modal = document.querySelector('.modal-content');
+            if (modal && modal._focusTrapHandler) {
+                modal.removeEventListener('keydown', modal._focusTrapHandler);
+                delete modal._focusTrapHandler;
+            }
         },
         
         selectSound(sound) {
@@ -518,6 +681,7 @@ createApp({
         },
         
         saveButtonEdit() {
+            this.cleanupModalFocusTrap();
             this.editingButtonBackup = null;
             this.isNewButton = false;
             this.editingButton = null;
@@ -535,6 +699,7 @@ createApp({
                     this.config.buttons[this.editingButton] = this.editingButtonBackup;
                 }
             }
+            this.cleanupModalFocusTrap();
             this.editingButtonBackup = null;
             this.isNewButton = false;
             this.editingButton = null;
@@ -718,12 +883,55 @@ createApp({
         
         // Add Ctrl+F keyboard shortcut
         document.addEventListener('keydown', (e) => {
+            // Ctrl+F for search
             if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
                 e.preventDefault();
                 this.$refs.searchInput?.focus();
                 this.$refs.searchInput?.select();
                 this.showSearchDropdown = true;
                 this.selectedSearchIndex = -1;
+            }
+            
+            // Don't handle shortcuts when typing in inputs
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+                return;
+            }
+            
+            // ? for help
+            if (e.key === '?' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+                e.preventDefault();
+                this.showHelp = !this.showHelp;
+            }
+            
+            // S for settings
+            if (e.key === 's' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+                e.preventDefault();
+                this.showSettings = !this.showSettings;
+            }
+            
+            // 1, 2, 3 for view switching
+            if (e.key === '1' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+                e.preventDefault();
+                this.activeView = 'buttons';
+            }
+            if (e.key === '2' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+                e.preventDefault();
+                this.activeView = 'recent';
+            }
+            if (e.key === '3' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+                e.preventDefault();
+                this.activeView = 'all';
+            }
+            
+            // Escape to close modals and panels
+            if (e.key === 'Escape') {
+                if (this.editingButton !== null) {
+                    this.cancelButtonEdit();
+                } else if (this.showHelp) {
+                    this.showHelp = false;
+                } else if (this.showSettings) {
+                    this.showSettings = false;
+                }
             }
         });
         

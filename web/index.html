@@ -31,7 +31,7 @@
                     <i class="bi bi-music-note-beamed"></i> Discord Soundboard
                 </span>
                 <div class="d-flex align-items-center gap-2">
-                    <button class="btn btn-sm" :class="'btn-' + playModeInfo.color" @click="togglePlayMode" :title="'Click to change play mode'">
+                    <button class="btn btn-sm" :class="'btn-' + playModeInfo.color" @click="togglePlayMode" :title="'Click to change play mode'" tabindex="0" aria-label="Play mode toggle">
                         <i class="bi" :class="playModeInfo.icon"></i> {{ playModeInfo.label }}
                     </button>
                     
@@ -39,7 +39,10 @@
                     <span class="badge bg-info" v-else-if="!queueStatus.is_playing">Connected</span>
                     <span class="badge bg-success" v-else>Playing</span>
                     
-                    <button class="btn btn-sm btn-outline-light" @click="showSettings = !showSettings">
+                    <button class="btn btn-sm btn-outline-light" @click="showHelp = !showHelp" @keydown.enter="showHelp = !showHelp" title="Help (Press ?)" aria-label="Toggle help" tabindex="0">
+                        <i class="bi bi-question-circle"></i>
+                    </button>
+                    <button class="btn btn-sm btn-outline-light" @click="showSettings = !showSettings" @keydown.enter="showSettings = !showSettings" title="Settings (Press S)" aria-label="Toggle settings" tabindex="0">
                         <i class="bi bi-gear"></i>
                     </button>
                 </div>
@@ -90,17 +93,96 @@
                 </div>
             </div>
 
+            <!-- Help Panel -->
+            <div v-if="showHelp" class="card mb-3 border-info">
+                <div class="card-header bg-info text-white">
+                    <h5 class="mb-0"><i class="bi bi-question-circle"></i> Help & Tips</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row g-4">
+                        <div class="col-md-6">
+                            <h6 class="text-primary"><i class="bi bi-music-note-list"></i> Play Modes</h6>
+                            <ul class="small">
+                                <li><strong>Instant:</strong> Interrupts current playback and plays immediately</li>
+                                <li><strong>Queue:</strong> Adds to the end of your personal queue</li>
+                                <li><strong>Play Next:</strong> Plays after the current sound finishes</li>
+                            </ul>
+                            <p class="small text-muted mb-0">Click the mode button in the header to cycle through modes.</p>
+                        </div>
+                        
+                        <div class="col-md-6">
+                            <h6 class="text-primary"><i class="bi bi-keyboard"></i> Keyboard Shortcuts</h6>
+                            <ul class="small">
+                                <li><strong>Ctrl + Click:</strong> Play in instant mode (override current mode)</li>
+                                <li><strong>Shift + Click:</strong> Play in queue mode (override current mode)</li>
+                                <li><strong>Ctrl + Shift + Click:</strong> Play in next mode (override current mode)</li>
+                                <li><strong>Ctrl + F:</strong> Focus search box</li>
+                                <li><strong>Tab / Shift+Tab:</strong> Navigate between elements</li>
+                                <li><strong>Arrow Keys:</strong> Navigate sound buttons in grid</li>
+                                <li><strong>Enter / Space:</strong> Activate focused button</li>
+                                <li><strong>Escape:</strong> Close modals and dropdowns</li>
+                                <li><strong>?:</strong> Toggle this help panel</li>
+                                <li><strong>S:</strong> Toggle settings panel</li>
+                                <li><strong>1/2/3:</strong> Switch to Custom/Recent/All view</li>
+                            </ul>
+                            <p class="small text-muted mb-0">Hold modifiers to see the mode indicator change.</p>
+                        </div>
+                        
+                        <div class="col-md-6">
+                            <h6 class="text-primary"><i class="bi bi-search"></i> Search Behavior</h6>
+                            <ul class="small">
+                                <li>Search shows matching sounds from your collection</li>
+                                <li>Recently played sounds appear first in results</li>
+                                <li>Use <kbd>↑</kbd> <kbd>↓</kbd> arrow keys to navigate</li>
+                                <li>Press <kbd>Enter</kbd> to play selected sound</li>
+                                <li>Search is case-insensitive and matches partial names</li>
+                            </ul>
+                        </div>
+                        
+                        <div class="col-md-6">
+                            <h6 class="text-primary"><i class="bi bi-grid-3x3"></i> Custom Buttons</h6>
+                            <ul class="small">
+                                <li><strong>Right-click</strong> a button to edit it</li>
+                                <li><strong>Right-click</strong> sounds in "All Sounds" to add as button</li>
+                                <li><strong>Drag and drop</strong> to rearrange buttons</li>
+                                <li>Choose from 7 different colors for organization</li>
+                                <li>Export/import your button configuration</li>
+                            </ul>
+                        </div>
+                        
+                        <div class="col-md-6">
+                            <h6 class="text-primary"><i class="bi bi-clock-history"></i> Recent Sounds</h6>
+                            <p class="small mb-0">
+                                Your last 20 played sounds are automatically saved and appear in the "Recent Sounds" view.
+                                Recent sounds are prioritized in search results for quick access.
+                            </p>
+                        </div>
+                        
+                        <div class="col-md-6">
+                            <h6 class="text-primary"><i class="bi bi-list-check"></i> Queue Management</h6>
+                            <ul class="small">
+                                <li>View active streams and queued sounds at the bottom</li>
+                                <li>Each user has their own queue</li>
+                                <li>Click queue headers to expand/collapse</li>
+                                <li>Remove individual items with the <i class="bi bi-x"></i> button</li>
+                                <li>Use the Stop button to clear playback and queues</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <!-- View Selection -->
             <div class="row mb-3">
                 <div class="col-12">
-                    <div class="btn-group w-100" role="group">
-                        <button class="btn" :class="activeView === 'buttons' ? 'btn-primary' : 'btn-outline-primary'" @click="activeView = 'buttons'">
+                    <div class="btn-group w-100" role="group" aria-label="View selection">
+                        <button class="btn" :class="activeView === 'buttons' ? 'btn-primary' : 'btn-outline-primary'" @click="activeView = 'buttons'" tabindex="0" aria-label="Custom Buttons view (Press 1)" :aria-pressed="activeView === 'buttons'">
                             <i class="bi bi-grid-3x3"></i> Custom Buttons
                         </button>
-                        <button class="btn" :class="activeView === 'recent' ? 'btn-primary' : 'btn-outline-primary'" @click="activeView = 'recent'">
+                        <button class="btn" :class="activeView === 'recent' ? 'btn-primary' : 'btn-outline-primary'" @click="activeView = 'recent'" tabindex="0" aria-label="Recent sounds view (Press 2)" :aria-pressed="activeView === 'recent'">
                             <i class="bi bi-clock-history"></i> Recent
                         </button>
-                        <button class="btn" :class="activeView === 'all' ? 'btn-primary' : 'btn-outline-primary'" @click="activeView = 'all'">
+                        <button class="btn" :class="activeView === 'all' ? 'btn-primary' : 'btn-outline-primary'" @click="activeView = 'all'" tabindex="0" aria-label="All sounds view (Press 3)" :aria-pressed="activeView === 'all'">
                             <i class="bi bi-collection"></i> All Sounds
                         </button>
                     </div>
@@ -118,8 +200,10 @@
                                class="form-control" 
                                placeholder="Type to search sounds..." 
                                autocomplete="off"
+                               aria-label="Search for sounds"
+                               tabindex="0"
                                @focus="showSearchDropdown = true; selectedSearchIndex = -1"
-                               @blur="showSearchDropdown = false"
+                               @blur="handleSearchBlur"
                                @input="showSearchDropdown = true; selectedSearchIndex = -1"
                                @keydown="handleSearchKeydown">
                         <div v-if="showSearchDropdown" class="search-dropdown" @click.stop>
@@ -138,21 +222,21 @@
                                 Showing first 100 results. Type to filter more.
                             </div>
                         </div>
-                        <button class="btn btn-primary" @click="playSearchResult">Play</button>
-                        <button class="btn btn-danger" @click="stopPlayback">Stop</button>
+                        <button class="btn btn-primary" @click="playSearchResult" @keydown.enter.space.prevent="playSearchResult" tabindex="0" aria-label="Play selected sound">Play</button>
+                        <button class="btn btn-danger" @click="stopPlayback" @keydown.enter.space.prevent="stopPlayback" tabindex="0" aria-label="Stop playback">Stop</button>
                     </div>
                 </div>
                 <div class="col-md-4">
                     <div v-if="activeView === 'buttons'" class="d-flex gap-2">
-                        <button class="btn btn-success flex-fill" @click="addNewButton">
+                        <button class="btn btn-success flex-fill" @click="addNewButton" tabindex="0" aria-label="Add new button">
                             <i class="bi bi-plus-circle"></i> Add Button
                         </button>
-                        <button class="btn flex-fill" :class="editMode ? 'btn-warning' : 'btn-outline-secondary'" @click="toggleEditMode">
+                        <button class="btn flex-fill" :class="editMode ? 'btn-warning' : 'btn-outline-secondary'" @click="toggleEditMode" tabindex="0" :aria-label="editMode ? 'Exit edit mode' : 'Enter edit mode'">
                             <i class="bi" :class="editMode ? 'bi-lock-fill' : 'bi-unlock'"></i> {{ editMode ? 'Done' : 'Edit' }}
                         </button>
                     </div>
                     <div v-if="activeView === 'recent'" class="d-flex gap-2">
-                        <button class="btn flex-fill" :class="editMode ? 'btn-warning' : 'btn-outline-secondary'" @click="toggleEditMode">
+                        <button class="btn flex-fill" :class="editMode ? 'btn-warning' : 'btn-outline-secondary'" @click="toggleEditMode" tabindex="0" :aria-label="editMode ? 'Exit edit mode' : 'Enter edit mode'">
                             <i class="bi" :class="editMode ? 'bi-lock-fill' : 'bi-unlock'"></i> {{ editMode ? 'Done' : 'Edit' }}
                         </button>
                     </div>
@@ -173,8 +257,12 @@
                             class="sound-button btn w-100 h-100"
                             :class="'btn-' + (button.color || 'primary')"
                             @click="playSound(button.sound, $event)"
+                            @keydown="handleButtonKeydown($event, button.sound, index)"
                             @contextmenu.prevent="editButton(index)"
-                            :title="'Click to play | Ctrl: instant | Shift: queue | Ctrl+Shift: next'">
+                            :title="'Click to play | Ctrl: instant | Shift: queue | Ctrl+Shift: next'"
+                            :aria-label="'Play ' + (button.label || button.sound)"
+                            tabindex="0"
+                            :data-button-index="index">
                             <div class="button-label">{{ button.label || button.sound }}</div>
                             <button v-if="editMode" class="btn-remove" @click.stop="removeButton(index)" title="Remove">
                                 <i class="bi bi-x-circle"></i>
@@ -193,7 +281,11 @@
                     <div v-for="(sound, index) in config.recent_sounds" :key="sound" class="sound-button-container">
                         <button class="sound-button btn btn-outline-secondary w-100 h-100"
                                 @click="playSound(sound, $event)"
-                                :title="'Click to play | Ctrl: instant | Shift: queue | Ctrl+Shift: next'">
+                                @keydown="handleButtonKeydown($event, sound, index)"
+                                :title="'Click to play | Ctrl: instant | Shift: queue | Ctrl+Shift: next'"
+                                :aria-label="'Play ' + sound"
+                                tabindex="0"
+                                :data-button-index="index">
                             <div class="button-label">{{ sound }}</div>
                             <button v-if="editMode" class="btn-remove" @click.stop="removeRecentSound(index)" title="Remove">
                                 <i class="bi bi-x-circle"></i>
@@ -206,37 +298,43 @@
             <!-- All Sounds View -->
             <div v-if="activeView === 'all'" class="mb-3">
                 <div class="sound-grid" :style="gridStyle">
-                    <button v-for="sound in filteredSounds" :key="sound" 
+                    <button v-for="(sound, index) in filteredSounds" :key="sound" 
                             class="sound-button btn btn-outline-primary"
                             @click="playSound(sound, $event)"
+                            @keydown="handleButtonKeydown($event, sound, index)"
                             @contextmenu.prevent="addButtonFromSound(sound)"
-                            :title="'Click to play | Ctrl: instant | Shift: queue | Ctrl+Shift: next | Right-click to add to custom buttons'">
+                            :title="'Click to play | Ctrl: instant | Shift: queue | Ctrl+Shift: next | Right-click to add to custom buttons'"
+                            :aria-label="'Play ' + sound"
+                            tabindex="0"
+                            :data-button-index="index">
                         <div class="button-label">{{ sound }}</div>
                     </button>
                 </div>
             </div>
 
             <!-- Button Editor Modal -->
-            <div v-if="editingButton !== null" class="modal-overlay" @click.self="cancelButtonEdit">
+            <div v-if="editingButton !== null" class="modal-overlay" @click.self="cancelButtonEdit" @keydown.esc="cancelButtonEdit" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
                 <div class="modal-dialog modal-dialog-centered" @click="showSoundDropdown = false">
                     <div class="modal-content" @click.stop>
                         <div class="modal-header">
-                            <h5 class="modal-title">{{ isNewButton ? 'Add Button' : 'Edit Button' }}</h5>
-                            <button type="button" class="btn-close" @click="cancelButtonEdit"></button>
+                            <h5 class="modal-title" id="modalTitle">{{ isNewButton ? 'Add Button' : 'Edit Button' }}</h5>
+                            <button type="button" class="btn-close" @click="cancelButtonEdit" aria-label="Close modal" tabindex="0"></button>
                         </div>
                         <div class="modal-body">
                             <div class="mb-3">
-                                <label class="form-label">Label:</label>
-                                <input type="text" v-model="config.buttons[editingButton].label" class="form-control" ref="labelInput">
+                                <label class="form-label" for="buttonLabel">Label:</label>
+                                <input type="text" id="buttonLabel" v-model="config.buttons[editingButton].label" class="form-control" ref="labelInput" tabindex="0">
                             </div>
                             <div class="mb-3">
-                                <label class="form-label">Sound:</label>
+                                <label class="form-label" for="buttonSound">Sound:</label>
                                 <div class="position-relative">
                                     <input type="text" 
+                                           id="buttonSound"
                                            v-model="config.buttons[editingButton].sound" 
                                            class="form-control mb-2" 
                                            placeholder="Type sound path or search..."
                                            autocomplete="off"
+                                           tabindex="0"
                                            @focus="showSoundDropdown = true; selectedSoundIndex = -1"
                                            @input="showSoundDropdown = true; selectedSoundIndex = -1"
                                            @keydown="handleSoundInputKeydown">
@@ -266,15 +364,19 @@
                                             type="button" 
                                             class="btn flex-fill"
                                             :class="'btn-' + color"
-                                            @click="config.buttons[editingButton].color = color">
+                                            @click="config.buttons[editingButton].color = color"
+                                            @keydown.enter="config.buttons[editingButton].color = color"
+                                            tabindex="0"
+                                            :aria-label="'Set color to ' + color"
+                                            :aria-pressed="config.buttons[editingButton].color === color">
                                         {{ color }}
                                     </button>
                                 </div>
                             </div>
                         </div>
                         <div class="modal-footer">
-                            <button type="button" class="btn btn-secondary" @click="cancelButtonEdit">Cancel</button>
-                            <button type="button" class="btn btn-primary" @click="saveButtonEdit">Save</button>
+                            <button type="button" class="btn btn-secondary" @click="cancelButtonEdit" @keydown.enter="cancelButtonEdit" tabindex="0">Cancel</button>
+                            <button type="button" class="btn btn-primary" @click="saveButtonEdit" @keydown.enter="saveButtonEdit" tabindex="0">Save</button>
                         </div>
                     </div>
                 </div>
@@ -301,14 +403,17 @@
                         <p class="text-muted small">Total: {{ queueStatus.total_queued }} item(s)</p>
                         
                         <div v-for="userQueue in queueStatus.user_queues" :key="userQueue.user_id" class="card mb-2">
-                            <div class="card-header py-2 d-flex justify-content-between align-items-center" 
-                                 @click="toggleQueueExpanded(userQueue.user_id)"
-                                 style="cursor: pointer;">
-                                <div>
+                            <div class="card-header py-2 d-flex justify-content-between align-items-center">
+                                <div @click="toggleQueueExpanded(userQueue.user_id)" style="cursor: pointer; flex-grow: 1;">
                                     <strong>{{ userQueue.user_name }}</strong>
                                     <span class="badge bg-primary ms-2">{{ userQueue.count }}</span>
                                 </div>
-                                <i class="bi" :class="expandedQueues[userQueue.user_id] ? 'bi-chevron-up' : 'bi-chevron-down'"></i>
+                                <div class="d-flex align-items-center gap-2">
+                                    <button class="btn btn-sm btn-outline-danger" @click.stop="clearUserQueue(userQueue.user_id)" title="Clear all items in this queue">
+                                        <i class="bi bi-trash"></i> Clear
+                                    </button>
+                                    <i class="bi" :class="expandedQueues[userQueue.user_id] ? 'bi-chevron-up' : 'bi-chevron-down'" @click="toggleQueueExpanded(userQueue.user_id)" style="cursor: pointer;"></i>
+                                </div>
                             </div>
                             <div v-if="expandedQueues[userQueue.user_id]" class="card-body py-2">
                                 <ul class="list-unstyled mb-0">
