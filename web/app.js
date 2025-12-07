@@ -5,28 +5,58 @@ const RPC_URL = 'https://apollo.loping.net/rpc/soundbot';
 const DISCORD_VOICE_CHANNEL_ID = '1033659964457230392';
 
 async function rpcCall(method, params = {}) {
-    const response = await fetch(RPC_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            jsonrpc: '2.0',
-            method: method,
-            params: params,
-            id: Date.now()
-        })
-    });
-    const data = await response.json();
-    if (data.error) {
-        throw new Error(data.error.message || 'RPC Error');
+    try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+        
+        const response = await fetch(RPC_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                jsonrpc: '2.0',
+                method: method,
+                params: params,
+                id: Date.now()
+            }),
+            signal: controller.signal
+        });
+        
+        clearTimeout(timeout);
+        
+        // Check if the response is OK before parsing
+        if (!response.ok) {
+            const text = await response.text();
+            if (response.status === 504) {
+                throw new Error('Server timeout - the bot may not be running or is taking too long to respond');
+            }
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        // Check if the response is JSON
+        const contentType = response.headers.get('content-type');
+        if (!contentType || !contentType.includes('application/json')) {
+            const text = await response.text();
+            throw new Error(`Expected JSON response but got ${contentType}`);
+        }
+        
+        const data = await response.json();
+        if (data.error) {
+            throw new Error(data.error.message || 'RPC Error');
+        }
+        return data.result;
+    } catch (error) {
+        if (error.name === 'AbortError') {
+            throw new Error('Request timeout - the server is not responding');
+        }
+        throw error;
     }
-    return data.result;
 }
 
 createApp({
     data() {
         return {
             username: localStorage.getItem('username') || '',
-            theme: localStorage.getItem('theme') || 'light',
+            theme: localStorage.getItem('theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'),
             config: {
                 buttons: [],
                 grid_size: { cols: 6, rows: 4 },
@@ -56,7 +86,10 @@ createApp({
             editingButtonBackup: null,
             isNewButton: false,
             showSearchDropdown: false,
-            selectedSearchIndex: -1
+            selectedSearchIndex: -1,
+            wakeLock: null,
+            editMode: false,
+            expandedQueues: {}
         };
     },
     computed: {
@@ -68,24 +101,40 @@ createApp({
             };
         },
         filteredSounds() {
-            if (!this.searchQuery) return this.allSounds;
-            const query = this.searchQuery.toLowerCase();
-            return this.allSounds.filter(sound => sound.toLowerCase().includes(query));
+            return this.filterAndPrioritize(this.searchQuery, this.allSounds);
         },
         filteredEditSounds() {
             if (this.editingButton === null) return [];
             const currentSound = this.config.buttons[this.editingButton].sound;
-            if (!currentSound) return this.allSounds;
-            const query = currentSound.toLowerCase();
-            return this.allSounds.filter(sound => sound.toLowerCase().includes(query));
-        },
-        filteredSearchSounds() {
-            if (!this.searchQuery) return this.allSounds;
-            const query = this.searchQuery.toLowerCase();
-            return this.allSounds.filter(sound => sound.toLowerCase().includes(query));
+            return this.filterAndPrioritize(currentSound, this.allSounds);
         }
     },
     methods: {
+        filterAndPrioritize(query, sounds) {
+            const lowerQuery = query ? query.toLowerCase() : '';
+            const filtered = query ? sounds.filter(sound => sound.toLowerCase().includes(lowerQuery)) : sounds;
+            return this.prioritizeRecentSounds(filtered);
+        },
+        
+        prioritizeRecentSounds(sounds) {
+            const recentSet = new Set(this.config.recent_sounds);
+            const recentSounds = [];
+            const otherSounds = [];
+            
+            sounds.forEach(sound => {
+                if (recentSet.has(sound)) {
+                    recentSounds.push(sound);
+                } else {
+                    otherSounds.push(sound);
+                }
+            });
+            
+            // Return recent sounds first, maintaining their order from recent_sounds
+            // Then append other sounds
+            const orderedRecent = this.config.recent_sounds.filter(sound => recentSet.has(sound) && sounds.includes(sound));
+            return [...orderedRecent, ...otherSounds];
+        },
+        
         async loadAllSounds() {
             try {
                 this.allSounds = await rpcCall('list', {});
@@ -149,7 +198,7 @@ createApp({
         
         saveTheme() {
             localStorage.setItem('theme', this.theme);
-            document.body.setAttribute('data-theme', this.theme);
+            document.body.setAttribute('data-bs-theme', this.theme);
         },
         
         async playSound(query) {
@@ -189,14 +238,14 @@ createApp({
         },
         
         handleSearchKeydown(event) {
-            if (!this.showSearchDropdown || this.filteredSearchSounds.length === 0) {
+            if (!this.showSearchDropdown || this.filteredSounds.length === 0) {
                 if (event.key === 'Enter') {
                     this.playSearchResult();
                 }
                 return;
             }
             
-            const maxIndex = Math.min(this.filteredSearchSounds.length, 100) - 1;
+            const maxIndex = Math.min(this.filteredSounds.length, 100) - 1;
             
             switch(event.key) {
                 case 'ArrowDown':
@@ -212,7 +261,7 @@ createApp({
                 case 'Enter':
                     event.preventDefault();
                     if (this.selectedSearchIndex >= 0 && this.selectedSearchIndex <= maxIndex) {
-                        this.selectSearchSound(this.filteredSearchSounds[this.selectedSearchIndex]);
+                        this.selectSearchSound(this.filteredSounds[this.selectedSearchIndex]);
                         this.playSearchResult();
                     } else {
                         this.playSearchResult();
@@ -269,7 +318,7 @@ createApp({
                 await rpcCall('remove_queue_item', {
                     channelid: DISCORD_VOICE_CHANNEL_ID,
                     user_id: userId,
-                    index: index
+                    item_index: index
                 });
                 await this.refreshQueue();
             } catch (error) {
@@ -291,6 +340,13 @@ createApp({
             this.isNewButton = true;
             // Open editor for the newly added button
             this.editingButton = this.config.buttons.length - 1;
+            // Focus and select label input
+            this.$nextTick(() => {
+                if (this.$refs.labelInput) {
+                    this.$refs.labelInput.focus();
+                    this.$refs.labelInput.select();
+                }
+            });
         },
         
         addButtonFromSound(sound) {
@@ -308,6 +364,13 @@ createApp({
             this.editingButtonBackup = JSON.parse(JSON.stringify(this.config.buttons[index]));
             this.isNewButton = false;
             this.editingButton = index;
+            // Focus and select label input
+            this.$nextTick(() => {
+                if (this.$refs.labelInput) {
+                    this.$refs.labelInput.focus();
+                    this.$refs.labelInput.select();
+                }
+            });
             this.showSoundDropdown = false;
             this.selectedSoundIndex = -1;
         },
@@ -401,6 +464,13 @@ createApp({
             }
         },
         
+        removeRecentSound(index) {
+            if (confirm('Remove this sound from recent?')) {
+                this.config.recent_sounds.splice(index, 1);
+                this.saveConfig();
+            }
+        },
+        
         exportConfig() {
             const dataStr = JSON.stringify(this.config, null, 2);
             const dataBlob = new Blob([dataStr], { type: 'application/json' });
@@ -479,6 +549,7 @@ createApp({
                 ghostClass: 'sortable-ghost',
                 chosenClass: 'sortable-chosen',
                 dragClass: 'sortable-drag',
+                disabled: !this.editMode,
                 onEnd: (evt) => {
                     // Reorder buttons array
                     const item = this.config.buttons.splice(evt.oldIndex, 1)[0];
@@ -486,6 +557,17 @@ createApp({
                     this.saveConfig();
                 }
             });
+        },
+        
+        toggleEditMode() {
+            this.editMode = !this.editMode;
+            if (this.sortable) {
+                this.sortable.option('disabled', !this.editMode);
+            }
+        },
+        
+        toggleQueueExpanded(userId) {
+            this.expandedQueues[userId] = !this.expandedQueues[userId];
         },
         
         startQueuePolling() {
@@ -499,12 +581,34 @@ createApp({
                 clearInterval(this.queueRefreshInterval);
                 this.queueRefreshInterval = null;
             }
+        },
+        
+        async requestWakeLock() {
+            try {
+                if ('wakeLock' in navigator) {
+                    this.wakeLock = await navigator.wakeLock.request('screen');
+                    console.log('Wake lock acquired');
+                    
+                    this.wakeLock.addEventListener('release', () => {
+                        console.log('Wake lock released');
+                    });
+                }
+            } catch (err) {
+                console.error('Wake lock request failed:', err);
+            }
+        },
+        
+        releaseWakeLock() {
+            if (this.wakeLock) {
+                this.wakeLock.release();
+                this.wakeLock = null;
+            }
         }
     },
     
     mounted() {
         // Apply theme
-        document.body.setAttribute('data-theme', this.theme);
+        document.body.setAttribute('data-bs-theme', this.theme);
         
         // Load initial data
         this.loadAllSounds();
@@ -516,6 +620,27 @@ createApp({
         // Start queue polling
         this.refreshQueue();
         this.startQueuePolling();
+        
+        // Request wake lock to keep screen on
+        this.requestWakeLock();
+        
+        // Re-request wake lock when page becomes visible again
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') {
+                this.requestWakeLock();
+            }
+        });
+        
+        // Add Ctrl+F keyboard shortcut
+        document.addEventListener('keydown', (e) => {
+            if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+                e.preventDefault();
+                this.$refs.searchInput?.focus();
+                this.$refs.searchInput?.select();
+                this.showSearchDropdown = true;
+                this.selectedSearchIndex = -1;
+            }
+        });
     },
     
     beforeUnmount() {
@@ -523,5 +648,6 @@ createApp({
         if (this.sortable) {
             this.sortable.destroy();
         }
+        this.releaseWakeLock();
     }
 }).mount('#app');

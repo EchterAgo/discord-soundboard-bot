@@ -22,7 +22,7 @@
     <link href="style-vue.css" rel="stylesheet">
 </head>
 
-<body :data-theme="theme">
+<body :data-bs-theme="theme">
     <div id="app">
         <!-- Header -->
         <nav class="navbar navbar-dark bg-dark mb-3">
@@ -62,7 +62,7 @@
                             <label class="form-label">Theme:</label>
                             <select v-model="theme" @change="saveTheme" class="form-select">
                                 <option value="light">Light</option>
-                                <option value="oled">OLED Black</option>
+                                <option value="dark">Dark</option>
                             </select>
                         </div>
                         <div class="col-md-3">
@@ -109,26 +109,28 @@
                     <div class="input-group position-relative">
                         <span class="input-group-text"><i class="bi bi-search"></i></span>
                         <input type="text" 
+                               ref="searchInput"
                                v-model="searchQuery" 
                                class="form-control" 
                                placeholder="Type to search sounds..." 
                                autocomplete="off"
                                @focus="showSearchDropdown = true; selectedSearchIndex = -1"
+                               @blur="showSearchDropdown = false"
                                @input="showSearchDropdown = true; selectedSearchIndex = -1"
                                @keydown="handleSearchKeydown">
                         <div v-if="showSearchDropdown" class="search-dropdown" @click.stop>
                             <div class="search-dropdown-item" 
-                                 v-for="(sound, index) in filteredSearchSounds.slice(0, 100)" 
+                                 v-for="(sound, index) in filteredSounds.slice(0, 100)" 
                                  :key="sound"
                                  :class="{ 'selected': index === selectedSearchIndex }"
-                                 @click="selectSearchSound(sound); playSearchResult()"
+                                 @mousedown.prevent="selectSearchSound(sound); playSearchResult()"
                                  @mouseenter="selectedSearchIndex = index">
                                 {{ sound }}
                             </div>
-                            <div v-if="filteredSearchSounds.length === 0" class="search-dropdown-item text-muted">
+                            <div v-if="filteredSounds.length === 0" class="search-dropdown-item text-muted">
                                 No sounds found
                             </div>
-                            <div v-if="filteredSearchSounds.length > 100" class="search-dropdown-item text-muted small">
+                            <div v-if="filteredSounds.length > 100" class="search-dropdown-item text-muted small">
                                 Showing first 100 results. Type to filter more.
                             </div>
                         </div>
@@ -137,14 +139,27 @@
                     </div>
                 </div>
                 <div class="col-md-4">
-                    <button v-if="activeView === 'buttons'" class="btn btn-success w-100" @click="addNewButton">
-                        <i class="bi bi-plus-circle"></i> Add Button
-                    </button>
+                    <div v-if="activeView === 'buttons'" class="d-flex gap-2">
+                        <button class="btn btn-success flex-fill" @click="addNewButton">
+                            <i class="bi bi-plus-circle"></i> Add Button
+                        </button>
+                        <button class="btn flex-fill" :class="editMode ? 'btn-warning' : 'btn-outline-secondary'" @click="toggleEditMode">
+                            <i class="bi" :class="editMode ? 'bi-lock-fill' : 'bi-unlock'"></i> {{ editMode ? 'Done' : 'Edit' }}
+                        </button>
+                    </div>
+                    <div v-if="activeView === 'recent'" class="d-flex gap-2">
+                        <button class="btn flex-fill" :class="editMode ? 'btn-warning' : 'btn-outline-secondary'" @click="toggleEditMode">
+                            <i class="bi" :class="editMode ? 'bi-lock-fill' : 'bi-unlock'"></i> {{ editMode ? 'Done' : 'Edit' }}
+                        </button>
+                    </div>
                 </div>
             </div>
 
             <!-- Custom Buttons View -->
             <div v-if="activeView === 'buttons'" class="mb-3">
+                <div v-if="editMode" class="alert alert-warning">
+                    <i class="bi bi-arrows-move"></i> Edit Mode: You can now drag buttons to reorder them. Click "Edit Mode" again when done.
+                </div>
                 <div class="alert alert-info" v-if="config.buttons.length === 0">
                     <i class="bi bi-info-circle"></i> No custom buttons yet. Click "Add Button" to create your first one, or drag sounds from the "All Sounds" view.
                 </div>
@@ -156,7 +171,7 @@
                             @click="playSound(button.sound)"
                             @contextmenu.prevent="editButton(index)">
                             <div class="button-label">{{ button.label || button.sound }}</div>
-                            <button class="btn-remove" @click.stop="removeButton(index)" title="Remove">
+                            <button v-if="editMode" class="btn-remove" @click.stop="removeButton(index)" title="Remove">
                                 <i class="bi bi-x-circle"></i>
                             </button>
                         </button>
@@ -170,11 +185,15 @@
                     <i class="bi bi-info-circle"></i> No recent sounds yet. Play some sounds to see them here!
                 </div>
                 <div class="sound-grid" :style="gridStyle">
-                    <button v-for="sound in config.recent_sounds" :key="sound" 
-                            class="sound-button btn btn-outline-secondary"
-                            @click="playSound(sound)">
-                        <div class="button-label">{{ sound }}</div>
-                    </button>
+                    <div v-for="(sound, index) in config.recent_sounds" :key="sound" class="sound-button-container">
+                        <button class="sound-button btn btn-outline-secondary w-100 h-100"
+                                @click="playSound(sound)">
+                            <div class="button-label">{{ sound }}</div>
+                            <button v-if="editMode" class="btn-remove" @click.stop="removeRecentSound(index)" title="Remove">
+                                <i class="bi bi-x-circle"></i>
+                            </button>
+                        </button>
+                    </div>
                 </div>
             </div>
 
@@ -202,7 +221,7 @@
                         <div class="modal-body">
                             <div class="mb-3">
                                 <label class="form-label">Label:</label>
-                                <input type="text" v-model="config.buttons[editingButton].label" class="form-control">
+                                <input type="text" v-model="config.buttons[editingButton].label" class="form-control" ref="labelInput">
                             </div>
                             <div class="mb-3">
                                 <label class="form-label">Sound:</label>
@@ -236,10 +255,10 @@
                             </div>
                             <div class="mb-3">
                                 <label class="form-label">Color:</label>
-                                <div class="btn-group w-100" role="group">
+                                <div class="d-flex flex-wrap gap-2">
                                     <button v-for="color in buttonColors" :key="color" 
                                             type="button" 
-                                            class="btn"
+                                            class="btn flex-fill"
                                             :class="'btn-' + color"
                                             @click="config.buttons[editingButton].color = color">
                                         {{ color }}
@@ -276,15 +295,20 @@
                         <p class="text-muted small">Total: {{ queueStatus.total_queued }} item(s)</p>
                         
                         <div v-for="userQueue in queueStatus.user_queues" :key="userQueue.user_id" class="card mb-2">
-                            <div class="card-header py-2 d-flex justify-content-between">
-                                <strong>{{ userQueue.user_name }}</strong>
-                                <span class="badge bg-primary">{{ userQueue.count }}</span>
+                            <div class="card-header py-2 d-flex justify-content-between align-items-center" 
+                                 @click="toggleQueueExpanded(userQueue.user_id)"
+                                 style="cursor: pointer;">
+                                <div>
+                                    <strong>{{ userQueue.user_name }}</strong>
+                                    <span class="badge bg-primary ms-2">{{ userQueue.count }}</span>
+                                </div>
+                                <i class="bi" :class="expandedQueues[userQueue.user_id] ? 'bi-chevron-up' : 'bi-chevron-down'"></i>
                             </div>
-                            <div class="card-body py-2">
+                            <div v-if="expandedQueues[userQueue.user_id]" class="card-body py-2">
                                 <ul class="list-unstyled mb-0">
                                     <li v-for="(item, index) in userQueue.items" :key="index" class="queue-item d-flex justify-content-between align-items-center">
                                         <span class="small">{{ index + 1 }}. {{ item.query }}</span>
-                                        <button class="btn btn-sm btn-outline-danger" @click="removeQueueItem(userQueue.user_id, index)">
+                                        <button class="btn btn-sm btn-outline-danger" @click.stop="removeQueueItem(userQueue.user_id, index)">
                                             <i class="bi bi-x"></i>
                                         </button>
                                     </li>
