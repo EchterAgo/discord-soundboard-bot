@@ -1,0 +1,360 @@
+"""JSON-RPC server for Discord Soundboard Bot."""
+
+import logging
+import time
+
+from discord.ext import commands
+from jsonrpcserver import (
+    method,
+    Result,
+    Success,
+    InvalidParams,
+    Error,
+)
+
+from utils import find_files
+from config import CONFIG_AUDIO_BASE_DIR
+import user_config
+
+
+_log = logging.getLogger(__name__)
+
+
+@method(name="list")
+async def jsonrpc_list(context) -> Result:
+    """List all available sound files."""
+    return Success(list(find_files(CONFIG_AUDIO_BASE_DIR)))
+
+
+@method(name="search")
+async def jsonrpc_search(context, query) -> Result:
+    """Search for sound files matching a query."""
+    files = list(find_files(CONFIG_AUDIO_BASE_DIR))
+    files = [f for f in files if query in f]
+    return Success(files)
+
+
+@method(name="play")
+async def jsonrpc_play(context, channelid, query, interrupt=False, play_next=False, user_name="RPC") -> Result:
+    """Play a sound via JSON-RPC.
+    
+    Args:
+        channelid: Voice channel ID to connect to
+        query: Sound file path to play
+        interrupt: If True, interrupt current playback (default: False)
+        play_next: If True, play after current sound (default: False, adds to end of queue)
+        user_name: Display name for logging (default: "RPC")
+    """
+    start_time = time.time()
+    
+    try:
+        _log.debug(f"[RPC] play request started - user: {user_name}, query: {query}, interrupt: {interrupt}, play_next: {play_next}")
+        
+        bot = context.app["bot"]
+
+        channel = bot.get_channel(int(channelid))
+        if not channel:
+            _log.warning(f"[RPC] play request failed - channel not found: {channelid}")
+            return InvalidParams("Channel not found")
+
+        guild = channel.guild
+
+        audio_player = bot.get_cog("AudioPlayer")
+        if not audio_player:
+            _log.error("[RPC] play request failed - AudioPlayer cog not found")
+            return Error(1, "Audio player cog not found")
+
+        # Ensure bot is connected to voice channel
+        vc_start = time.time()
+        vc = await audio_player.ensure_voice_connection(guild, channel)
+        vc_time = (time.time() - vc_start) * 1000
+        _log.debug(f"[RPC] Voice connection ensured in {vc_time:.2f}ms")
+        
+        if not vc:
+            _log.error("[RPC] play request failed - could not establish voice connection")
+            return Error(1, "Failed to establish voice connection")
+
+        # Generate user_id from user_name hash for per-user queuing
+        user_id = hash(user_name) & 0x7FFFFFFF  # Positive 32-bit integer
+
+        # Create a simple context object for queue_sound
+        class RpcContext:
+            voice_client = vc
+
+        queue_start = time.time()
+        await audio_player.queue_sound(
+            RpcContext(), 
+            query, 
+            user_id=user_id,
+            after=None,
+            interrupt=interrupt,
+            play_next=play_next,
+            user_name=user_name
+        )
+        queue_time = (time.time() - queue_start) * 1000
+        _log.debug(f"[RPC] Sound queued in {queue_time:.2f}ms")
+        
+        # Track in recent sounds
+        user_config.add_recent_sound(user_name, query)
+        
+        total_time = (time.time() - start_time) * 1000
+        _log.debug(f"[RPC] play request completed successfully in {total_time:.2f}ms")
+        
+        return Success("Playback successful")
+        
+    except commands.CommandError as e:
+        total_time = (time.time() - start_time) * 1000
+        _log.error(f"[RPC] CommandError in jsonrpc_play after {total_time:.2f}ms: {e}", exc_info=True)
+        return Error(1, str(e))
+    except Exception as e:
+        total_time = (time.time() - start_time) * 1000
+        _log.error(f"[RPC] Unexpected error in jsonrpc_play after {total_time:.2f}ms: {e}", exc_info=True)
+        return Error(1, f"Unexpected error: {str(e)}")
+
+
+@method(name="stop")
+async def jsonrpc_stop(context, channelid, user_name="RPC") -> Result:
+    """Stop playback and clear queue via JSON-RPC.
+    
+    Args:
+        channelid: Voice channel ID to stop playback in
+        user_name: Display name for logging (default: "RPC")
+    """
+    bot = context.app["bot"]
+
+    channel = bot.get_channel(int(channelid))
+    if not channel:
+        return InvalidParams("Channel not found")
+
+    guild = channel.guild
+    
+    audio_player = bot.get_cog("AudioPlayer")
+    if not audio_player:
+        return Error(1, "Audio player cog not found")
+
+    if not guild.voice_client:
+        return Success("Not connected to voice")
+    
+    result = audio_player.stop_playback(guild.voice_client, user_name=user_name)
+    
+    if result['stopped'] and result['queue_cleared'] > 0:
+        return Success(f"Playback stopped and cleared {result['queue_cleared']} queued items")
+    elif result['stopped']:
+        return Success("Playback stopped")
+    elif result['queue_cleared'] > 0:
+        return Success(f"Cleared {result['queue_cleared']} queued items")
+    else:
+        return Success("No playback to stop")
+
+
+@method(name="queue_status")
+async def jsonrpc_queue_status(context, channelid) -> Result:
+    """Get current queue status via JSON-RPC.
+    
+    Args:
+        channelid: Voice channel ID to check queue for
+    
+    Returns:
+        Queue status including all user queues and currently playing streams
+    """
+    bot = context.app["bot"]
+
+    channel = bot.get_channel(int(channelid))
+    if not channel:
+        return InvalidParams("Channel not found")
+
+    guild = channel.guild
+    
+    audio_player = bot.get_cog("AudioPlayer")
+    if not audio_player:
+        return Error(1, "Audio player cog not found")
+
+    status = {
+        "is_playing": audio_player.is_processing,
+        "connected": guild.voice_client is not None,
+        "user_queues": [],
+        "active_streams": [],
+        "total_queued": 0
+    }
+    
+    # Get user queues
+    for user_id, queue in audio_player.user_queues.items():
+        if queue:
+            queue_items = [{"query": item.query, "user_name": item.user_name} for item in queue]
+            status["user_queues"].append({
+                "user_id": user_id,
+                "user_name": queue[0].user_name if queue else "Unknown",
+                "count": len(queue),
+                "items": queue_items
+            })
+            status["total_queued"] += len(queue)
+    
+    # Get active streams
+    if audio_player.mixed_source:
+        for user_id, stream in audio_player.mixed_source.streams.items():
+            status["active_streams"].append({
+                "user_id": user_id,
+                "user_name": stream.user_name,
+                "filepath": stream.filepath,
+                "finished": stream.finished
+            })
+    
+    return Success(status)
+
+
+@method(name="remove_queue_item")
+async def jsonrpc_remove_queue_item(context, channelid, user_id, item_index) -> Result:
+    """Remove a specific item from a user's queue via JSON-RPC.
+    
+    Args:
+        channelid: Voice channel ID
+        user_id: User ID whose queue to modify
+        item_index: Index of the item to remove (0-based)
+    
+    Returns:
+        Success or error result
+    """
+    bot = context.app["bot"]
+
+    channel = bot.get_channel(int(channelid))
+    if not channel:
+        return InvalidParams("Channel not found")
+
+    guild = channel.guild
+    
+    audio_player = bot.get_cog("AudioPlayer")
+    if not audio_player:
+        return Error(1, "Audio player cog not found")
+
+    user_id = int(user_id)
+    item_index = int(item_index)
+    
+    # Check if user has a queue
+    if user_id not in audio_player.user_queues:
+        return Error(1, "User has no queued items")
+    
+    queue = audio_player.user_queues[user_id]
+    
+    # Validate index
+    if item_index < 0 or item_index >= len(queue):
+        return Error(1, f"Invalid item index: {item_index}")
+    
+    # Convert deque to list, remove item, convert back
+    queue_list = list(queue)
+    removed_item = queue_list.pop(item_index)
+    audio_player.user_queues[user_id].clear()
+    audio_player.user_queues[user_id].extend(queue_list)
+    
+    # Clean up empty queue
+    if not audio_player.user_queues[user_id]:
+        del audio_player.user_queues[user_id]
+    
+    _log.info(f"Removed queue item '{removed_item.query}' at index {item_index} for user {user_id}")
+    
+    return Success(f"Removed '{removed_item.query}' from queue")
+
+
+@method(name="get_user_config")
+async def jsonrpc_get_user_config(context, user_name: str) -> Result:
+    """Get user configuration via JSON-RPC.
+    
+    Args:
+        user_name: User identifier (username)
+        
+    Returns:
+        User configuration dictionary
+    """
+    try:
+        config = user_config.load_user_config(user_name)
+        return Success(config)
+    except Exception as e:
+        _log.error(f"Failed to get user config for {user_name}: {e}", exc_info=True)
+        return Error(1, f"Failed to load user config: {str(e)}")
+
+
+@method(name="save_user_config")
+async def jsonrpc_save_user_config(context, user_name: str, config: dict) -> Result:
+    """Save user configuration via JSON-RPC.
+    
+    Args:
+        user_name: User identifier (username)
+        config: Configuration dictionary to save
+        
+    Returns:
+        Success or error result
+    """
+    try:
+        # Validate required fields
+        if "buttons" not in config or "grid_size" not in config:
+            return InvalidParams("Config must include 'buttons' and 'grid_size'")
+        
+        success = user_config.save_user_config(user_name, config)
+        if success:
+            return Success("Configuration saved successfully")
+        else:
+            return Error(1, "Failed to save configuration")
+    except Exception as e:
+        _log.error(f"Failed to save user config for {user_name}: {e}", exc_info=True)
+        return Error(1, f"Failed to save user config: {str(e)}")
+
+
+@method(name="add_recent_sound")
+async def jsonrpc_add_recent_sound(context, user_name: str, sound_path: str) -> Result:
+    """Add a sound to user's recent sounds list.
+    
+    Args:
+        user_name: User identifier
+        sound_path: Path to the sound file
+        
+    Returns:
+        Success result
+    """
+    try:
+        user_config.add_recent_sound(user_name, sound_path)
+        return Success("Added to recent sounds")
+    except Exception as e:
+        _log.error(f"Failed to add recent sound for {user_name}: {e}", exc_info=True)
+        return Error(1, f"Failed to add recent sound: {str(e)}")
+
+
+@method(name="reset_user_config")
+async def jsonrpc_reset_user_config(context, user_name: str) -> Result:
+    """Reset user configuration to defaults.
+    
+    Args:
+        user_name: User identifier
+        
+    Returns:
+        Success or error result
+    """
+    try:
+        user_config.delete_user_config(user_name)
+        default_config = user_config.get_default_config()
+        default_config["username"] = user_name
+        user_config.save_user_config(user_name, default_config)
+        return Success(default_config)
+    except Exception as e:
+        _log.error(f"Failed to reset user config for {user_name}: {e}", exc_info=True)
+        return Error(1, f"Failed to reset user config: {str(e)}")
+
+
+@method(name="message")
+async def jsonrpc_message(context, channelid, content) -> Result:
+    """Send a message to a Discord channel.
+    
+    Args:
+        channelid: Channel ID to send message to
+        content: Message content
+        
+    Returns:
+        Success or error result
+    """
+    bot = context.app["bot"]
+
+    channel = bot.get_channel(int(channelid))
+    if not channel:
+        return InvalidParams("Channel not found")
+
+    await channel.send(content=content)
+
+    return Success("Message sent successfully")

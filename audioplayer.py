@@ -132,7 +132,7 @@ class MixedAudioSource(discord.AudioSource):
                 if stream.finished:
                     stream.cleanup()
                     del self.streams[user_id]
-                    _log.info(f"Stream finished for {stream.user_name} (ID: {user_id})")
+                    _log.debug(f"Stream finished for {stream.user_name} (ID: {user_id})")
                     # Signal that a stream finished
                     if self.stream_finished_event:
                         try:
@@ -277,7 +277,7 @@ class AudioPlayer(commands.Cog):
             query: Sound file to play
             user_id: User ID requesting playback
             after: Optional callback after playback
-            interrupt: If True, clear user's queue. Ignored in mixed mode.
+            interrupt: If True, stop this user's current stream and play immediately.
             play_next: If True, insert at front of user's queue. If False, append to end.
             user_name: Display name of user requesting playback
         """
@@ -297,22 +297,30 @@ class AudioPlayer(commands.Cog):
         
         should_start_playback = False
         async with self.process_lock:
-            # If interrupt, clear the user's queue
+            # If interrupt, stop this user's current stream immediately
             if interrupt:
-                old_size = len(self.user_queues[user_id])
-                if old_size > 0:
-                    _log.info(f"{user_name} (ID: {user_id}) clearing their queue ({old_size} items)")
-                    self.user_queues[user_id].clear()
-            
-            # Add to user's queue
-            if play_next and len(self.user_queues[user_id]) > 0:
+                # Stop the user's current stream in the mixer (if any)
+                if self.mixed_source and user_id in self.mixed_source.streams:
+                    stream = self.mixed_source.streams[user_id]
+                    stream.cleanup()
+                    del self.mixed_source.streams[user_id]
+                    _log.info(f"{user_name} (ID: {user_id}) interrupted their own stream")
+                # Add to front of queue to play immediately
                 self.user_queues[user_id].appendleft(item)
-                _log.info(f"{user_name} (ID: {user_id}) queued '{query}' to play next in their queue")
+                _log.info(f"{user_name} (ID: {user_id}) queued '{query}' for instant playback")
+                # Signal the processor to check for new work
+                if self.stream_finished_event:
+                    self.stream_finished_event.set()
             else:
-                self.user_queues[user_id].append(item)
-                user_pos = len(self.user_queues[user_id])
-                total_queued = self._get_total_queue_size()
-                _log.info(f"{user_name} (ID: {user_id}) queued '{query}' (user queue: {user_pos}, total: {total_queued})")
+                # Add to user's queue
+                if play_next and len(self.user_queues[user_id]) > 0:
+                    self.user_queues[user_id].appendleft(item)
+                    _log.info(f"{user_name} (ID: {user_id}) queued '{query}' to play next in their queue")
+                else:
+                    self.user_queues[user_id].append(item)
+                    user_pos = len(self.user_queues[user_id])
+                    total_queued = self._get_total_queue_size()
+                    _log.info(f"{user_name} (ID: {user_id}) queued '{query}' (user queue: {user_pos}, total: {total_queued})")
             
             # Check if we should start processing
             if not self.is_processing:
@@ -328,7 +336,7 @@ class AudioPlayer(commands.Cog):
             return
         
         self.is_processing = True
-        _log.info("Starting mixed audio playback system")
+        _log.debug("Starting mixed audio playback system")
         
         try:
             # Create mixed audio source
@@ -351,10 +359,10 @@ class AudioPlayer(commands.Cog):
             
             # Start playback with the mixed source
             voice_client.play(self.mixed_source, after=lambda e: self._on_playback_done(e))
-            _log.info("Mixed audio playback started")
+            _log.debug("Mixed audio playback started")
             
-            # Process remaining queue items
-            await self.process_user_queues()
+            # Process remaining queue items in background (don't await)
+            asyncio.create_task(self.process_user_queues())
             
         except Exception as e:
             _log.error(f"Error in mixed playback: {e}", exc_info=True)
@@ -425,7 +433,7 @@ class AudioPlayer(commands.Cog):
                     async with self.process_lock:
                         # Double check - no queues and no active streams
                         if not self.user_queues and (not self.mixed_source or not self.mixed_source.streams):
-                            _log.info("All queues empty and no active streams, stopping")
+                            _log.debug("All queues empty and no active streams, stopping")
                             break
                 
                 # Wait for stream to finish or timeout
@@ -441,7 +449,7 @@ class AudioPlayer(commands.Cog):
                 self.mixed_source._finished = True
                 self.mixed_source.cleanup()
                 self.mixed_source = None
-            _log.info("Queue processing complete")
+            _log.debug("Queue processing complete")
 
     async def process_queue(self, voice_client):
         """Legacy method for compatibility - redirects to mixed playback"""

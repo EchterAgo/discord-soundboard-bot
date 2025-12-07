@@ -99,7 +99,7 @@ def save_user_config(user_id: str, config: Dict[str, Any]) -> bool:
         with open(config_path, 'w', encoding='utf-8') as f:
             json.dump(config, f, indent=2, ensure_ascii=False)
         
-        _log.info(f"Saved config for user {user_id}")
+        _log.debug(f"Saved config for user {user_id}")
         return True
     except Exception as e:
         _log.error(f"Failed to save config for user {user_id}: {e}")
