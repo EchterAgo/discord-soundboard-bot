@@ -126,6 +126,9 @@ async def jsonrpc_play(context, channelid, query, interrupt=False, play_next=Fal
         if not vc:
             return Error(1, "Failed to establish voice connection")
 
+        # Generate user_id from user_name hash for per-user queuing
+        user_id = hash(user_name) & 0x7FFFFFFF  # Positive 32-bit integer
+
         # Create a simple context object for queue_sound
         class RpcContext:
             voice_client = vc
@@ -133,7 +136,7 @@ async def jsonrpc_play(context, channelid, query, interrupt=False, play_next=Fal
         await audio_player.queue_sound(
             RpcContext(), 
             query, 
-            user_id=0,  # RPC user ID
+            user_id=user_id,
             after=None,
             interrupt=interrupt,
             play_next=play_next,

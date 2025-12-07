@@ -1,15 +1,18 @@
 import logging
-from pathlib import PureWindowsPath
+from pathlib import PurePosixPath
 import random
 import asyncio
-from collections import deque
+from collections import deque, defaultdict
+import subprocess
+import threading
 import discord
 from discord import app_commands
 from discord.ext import commands
 
 from config import CONFIG_AUDIO_BASE_DIR
 from utils import caseless_in, find_files
-from typing import Callable, Iterator, List, Optional
+from typing import Callable, Iterator, Optional, Dict
+import audioop
 
 _log = logging.getLogger(__name__)
 
@@ -26,13 +29,168 @@ class QueueItem:
         self.after = after
 
 
+class UserAudioStream:
+    """Represents an audio stream for a single user"""
+    def __init__(self, filepath: str, user_id: int, user_name: str):
+        self.filepath = filepath
+        self.user_id = user_id
+        self.user_name = user_name
+        self.process: Optional[subprocess.Popen] = None
+        self.finished = False
+        self.after_callback: Optional[Callable[[], None]] = None
+        
+    def start(self):
+        """Start the FFmpeg process for this audio stream"""
+        args = [
+            'ffmpeg',
+            '-i', str(self.filepath),
+            '-f', 's16le',
+            '-ar', '48000',
+            '-ac', '2',
+            '-loglevel', 'warning',
+            'pipe:1'
+        ]
+        try:
+            self.process = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        except FileNotFoundError:
+            _log.error("FFmpeg not found! Please install FFmpeg to use audio mixing.")
+            raise commands.CommandError("FFmpeg is required for audio playback")
+        except Exception as e:
+            _log.error(f"Failed to start FFmpeg: {e}", exc_info=True)
+            raise
+        
+    def read(self, size: int) -> bytes:
+        """Read audio data from the stream"""
+        if self.finished or not self.process:
+            return b''
+        
+        try:
+            data = self.process.stdout.read(size)
+            if not data:
+                self.finished = True
+                if self.after_callback:
+                    self.after_callback()
+            return data
+        except Exception as e:
+            _log.error(f"Error reading from stream: {e}")
+            self.finished = True
+            return b''
+    
+    def cleanup(self):
+        """Clean up the FFmpeg process"""
+        if self.process:
+            try:
+                self.process.kill()
+                self.process.wait(timeout=1)
+            except Exception as e:
+                _log.debug(f"Error cleaning up process: {e}")
+
+
+class MixedAudioSource(discord.AudioSource):
+    """Audio source that mixes multiple per-user audio streams"""
+    
+    def __init__(self, stream_finished_event: Optional[asyncio.Event] = None):
+        self.streams: Dict[int, UserAudioStream] = {}
+        self.lock = threading.Lock()
+        self._finished = False
+        self.stream_finished_event = stream_finished_event
+        
+    def add_stream(self, user_id: int, filepath: str, user_name: str, after: Optional[Callable[[], None]] = None):
+        """Add or replace a user's audio stream"""
+        with self.lock:
+            # Clean up existing stream for this user
+            if user_id in self.streams:
+                old_stream = self.streams[user_id]
+                old_stream.cleanup()
+                _log.info(f"Replaced stream for {user_name} (ID: {user_id})")
+            
+            # Create and start new stream
+            stream = UserAudioStream(filepath, user_id, user_name)
+            stream.after_callback = after
+            stream.start()
+            self.streams[user_id] = stream
+            _log.info(f"Added stream for {user_name} (ID: {user_id}): {filepath}")
+    
+    def read(self) -> bytes:
+        """Read and mix audio from all active streams"""
+        if self._finished:
+            return b''
+        
+        with self.lock:
+            # Read from all streams
+            chunk_size = 3840  # 20ms at 48kHz stereo 16-bit
+            
+            if not self.streams:
+                # No streams yet, but we're not finished - return silence to keep playing
+                _log.debug("No active streams in mixer, returning silence")
+                return b'\x00' * chunk_size
+            
+            mixed_audio = None
+            active_streams = []
+            
+            for user_id, stream in list(self.streams.items()):
+                if stream.finished:
+                    stream.cleanup()
+                    del self.streams[user_id]
+                    _log.info(f"Stream finished for {stream.user_name} (ID: {user_id})")
+                    # Signal that a stream finished
+                    if self.stream_finished_event:
+                        try:
+                            # Use call_soon_threadsafe since we're in a thread
+                            import asyncio
+                            loop = asyncio.get_event_loop()
+                            loop.call_soon_threadsafe(self.stream_finished_event.set)
+                        except Exception as e:
+                            _log.debug(f"Could not signal stream finished: {e}")
+                    continue
+                
+                data = stream.read(chunk_size)
+                if data:
+                    active_streams.append((user_id, stream.user_name))
+                    # Mix audio
+                    if mixed_audio is None:
+                        mixed_audio = bytearray(data)
+                    else:
+                        # Ensure both buffers are the same length
+                        min_len = min(len(mixed_audio), len(data))
+                        # Mix using audioop
+                        mixed_audio[:min_len] = audioop.add(bytes(mixed_audio[:min_len]), data[:min_len], 2)
+                else:
+                    stream.finished = True
+            
+            # If no active streams, return silence to keep playing
+            if mixed_audio is None:
+                # Don't set _finished here - let the queue processor control when to stop
+                # Just return silence while waiting for new streams
+                return b'\x00' * chunk_size
+            
+            # Pad if necessary
+            if len(mixed_audio) < chunk_size:
+                mixed_audio.extend(b'\x00' * (chunk_size - len(mixed_audio)))
+            
+            return bytes(mixed_audio[:chunk_size])
+    
+    def cleanup(self):
+        """Clean up all streams"""
+        with self.lock:
+            for stream in self.streams.values():
+                stream.cleanup()
+            self.streams.clear()
+            self._finished = True
+    
+    def is_opus(self) -> bool:
+        return False
+
+
 class AudioPlayer(commands.Cog):
     def __init__(self, bot):
         self.qualified_name
         self.bot = bot
-        self.queue: deque[QueueItem] = deque()
-        self.current_item: Optional[QueueItem] = None
+        self.user_queues: Dict[int, deque[QueueItem]] = defaultdict(deque)
+        self.mixed_source: Optional[MixedAudioSource] = None
         self.is_processing = False
+        self.process_lock = asyncio.Lock()
+        self.stream_finished_event = asyncio.Event()
 
     @commands.command()
     @commands.guild_only()
@@ -50,11 +208,12 @@ class AudioPlayer(commands.Cog):
 
     def can_interrupt(self, user_id: int) -> bool:
         """Check if user can interrupt current playback"""
-        if self.current_item is None:
-            return True
-        # User can interrupt their own sound or if they have manage_guild permission
-        # We'll check permissions later when we have the interaction/context
-        return self.current_item.user_id == user_id
+        # In mixed mode, users can always add to their own queue
+        return True
+
+    def _get_total_queue_size(self) -> int:
+        """Get total number of queued items across all users"""
+        return sum(len(queue) for queue in self.user_queues.values())
 
     def _get_queue_message(self, sound: str, interrupt: bool, play_next: bool, user_id: int, has_manage_permission: bool) -> str:
         """Generate queue status message based on action.
@@ -69,18 +228,13 @@ class AudioPlayer(commands.Cog):
         Returns:
             Status message string
         """
-        queue_position = len(self.queue)
-        if interrupt or (self.is_processing and self.can_interrupt(user_id)):
-            if has_manage_permission or self.can_interrupt(user_id):
-                return f'Interrupting and playing "{sound}"...'
-            else:
-                return f'Queued "{sound}" (position {queue_position + 1})...'
-        elif play_next:
-            return f'Queued "{sound}" to play next...'
-        elif queue_position > 0:
-            return f'Queued "{sound}" (position {queue_position + 1})...'
+        user_queue_size = len(self.user_queues[user_id])
+        total_queue_size = self._get_total_queue_size()
+        
+        if user_queue_size > 0:
+            return f'Queued "{sound}" (your queue: {user_queue_size + 1}, total: {total_queue_size + 1})...'
         else:
-            return f'Playing "{sound}"...'
+            return f'Playing "{sound}" (will mix with {total_queue_size} other sounds)...'
 
     async def _handle_slash_play(self, interaction: discord.Interaction, sound: str, interrupt: bool, play_next: bool):
         """Common handler for slash command plays.
@@ -116,113 +270,187 @@ class AudioPlayer(commands.Cog):
             raise
 
     async def queue_sound(self, ctx, query: str, user_id: int, after: Optional[Callable[[], None]] = None, interrupt: bool = False, play_next: bool = False, user_name: str = "System"):
-        """Queue a sound to play.
+        """Queue a sound to play in the user's personal queue.
         
         Args:
             ctx: Context with voice_client
             query: Sound file to play
             user_id: User ID requesting playback
             after: Optional callback after playback
-            interrupt: If True, force interrupt (requires permission). If False, check user permissions.
-            play_next: If True, insert at front of queue. If False, append to end.
+            interrupt: If True, clear user's queue. Ignored in mixed mode.
+            play_next: If True, insert at front of user's queue. If False, append to end.
             user_name: Display name of user requesting playback
         """
         if not ctx.voice_client:
             raise commands.CommandError("Bot is not connected to a voice channel.")
 
-        item = QueueItem(query, user_id, user_name, after)
-        
-        # Determine if interruption is allowed
-        should_interrupt = interrupt
-        
-        if not should_interrupt:
-            # Check if user can interrupt based on permissions
-            can_interrupt = self.can_interrupt(user_id)
-            
-            # Check for manage_guild permission if not their own sound
-            if not can_interrupt and hasattr(ctx, 'author'):
-                member = ctx.author
-                if member.guild_permissions.manage_guild:
-                    can_interrupt = True
-            elif not can_interrupt and hasattr(ctx, 'user'):
-                member = ctx.user
-                if member.guild_permissions.manage_guild:
-                    can_interrupt = True
-            
-            should_interrupt = can_interrupt
-        
-        if should_interrupt and ctx.voice_client.is_playing():
-            # Interrupt current playback
-            _log.info(f"{user_name} (ID: {user_id}) interrupting current sound, clearing queue ({len(self.queue)} items)")
-            ctx.voice_client.stop()
-            self.queue.clear()
-        
-        # Add to queue
-        if play_next:
-            # Insert at the beginning of the queue (play next)
-            _log.info(f"{user_name} (ID: {user_id}) queued '{query}' to play next (queue size: {len(self.queue) + 1})")
-            self.queue.appendleft(item)
-        else:
-            # Add to the end of the queue
-            _log.info(f"{user_name} (ID: {user_id}) queued '{query}' at position {len(self.queue) + 1}")
-            self.queue.append(item)
-        
-        if not self.is_processing:
-            await self.process_queue(ctx.voice_client)
-
-    async def process_queue(self, voice_client):
-        """Process the audio queue"""
-        if self.is_processing:
-            return
-            
-        self.is_processing = True
-        _log.info(f"Starting queue processing with {len(self.queue)} items")
-        
-        while self.queue:
-            item = self.queue.popleft()
-            self.current_item = item
-            
-            _log.info(f"Playing '{item.query}' for {item.user_name} (ID: {item.user_id}) - {len(self.queue)} remaining in queue")
-            
-            try:
-                await self._play_sound(voice_client, item.query, item.after)
-                # Wait for playback to finish
-                while voice_client.is_playing():
-                    await asyncio.sleep(0.1)
-            except Exception as e:
-                _log.error(f"Error playing sound '{item.query}': {e}", exc_info=True)
-            
-        self.current_item = None
-        self.is_processing = False
-        _log.info("Queue processing finished")
-
-    async def _play_sound(self, voice_client, query: str, after: Optional[Callable[[], None]] = None):
-        """Internal method to play a sound"""
-        filename = CONFIG_AUDIO_BASE_DIR / PureWindowsPath(query)
-
+        # Validate file exists
+        filename = CONFIG_AUDIO_BASE_DIR / PurePosixPath(query)
         try:
             filename.resolve().relative_to(CONFIG_AUDIO_BASE_DIR.resolve())
         except ValueError:
             raise commands.CommandError("Naughty.")
-
         if not filename.is_file():
             raise commands.CommandError("Audio file not found.")
 
-        # Wait for voice client to be ready
-        from bot import wait_for_voice_connection
-        if not await wait_for_voice_connection(voice_client):
-            raise commands.CommandError("Voice client not connected after waiting")
+        item = QueueItem(query, user_id, user_name, after)
+        
+        should_start_playback = False
+        async with self.process_lock:
+            # If interrupt, clear the user's queue
+            if interrupt:
+                old_size = len(self.user_queues[user_id])
+                if old_size > 0:
+                    _log.info(f"{user_name} (ID: {user_id}) clearing their queue ({old_size} items)")
+                    self.user_queues[user_id].clear()
+            
+            # Add to user's queue
+            if play_next and len(self.user_queues[user_id]) > 0:
+                self.user_queues[user_id].appendleft(item)
+                _log.info(f"{user_name} (ID: {user_id}) queued '{query}' to play next in their queue")
+            else:
+                self.user_queues[user_id].append(item)
+                user_pos = len(self.user_queues[user_id])
+                total_queued = self._get_total_queue_size()
+                _log.info(f"{user_name} (ID: {user_id}) queued '{query}' (user queue: {user_pos}, total: {total_queued})")
+            
+            # Check if we should start processing
+            if not self.is_processing:
+                should_start_playback = True
+        
+        # Start processing outside the lock to avoid deadlock
+        if should_start_playback:
+            await self.start_mixed_playback(ctx.voice_client)
 
-        def after_callback(e):
-            if e:
-                _log.error(f'Player error: {e}')
-            if after:
-                after()
-            _log.info(f'Playback "{query}" done.')
+    async def start_mixed_playback(self, voice_client):
+        """Start the mixed audio playback system"""
+        if self.is_processing:
+            return
+        
+        self.is_processing = True
+        _log.info("Starting mixed audio playback system")
+        
+        try:
+            # Create mixed audio source
+            self.mixed_source = MixedAudioSource(self.stream_finished_event)
+            
+            # Start the first stream(s) before starting playback
+            async with self.process_lock:
+                for user_id in list(self.user_queues.keys()):
+                    queue = self.user_queues[user_id]
+                    if queue:
+                        item = queue.popleft()
+                        filename = CONFIG_AUDIO_BASE_DIR / PurePosixPath(item.query)
+                        self.mixed_source.add_stream(
+                            user_id, 
+                            str(filename), 
+                            item.user_name,
+                            item.after
+                        )
+                        _log.info(f"Started playing '{item.query}' for {item.user_name}")
+            
+            # Start playback with the mixed source
+            voice_client.play(self.mixed_source, after=lambda e: self._on_playback_done(e))
+            _log.info("Mixed audio playback started")
+            
+            # Process remaining queue items
+            await self.process_user_queues()
+            
+        except Exception as e:
+            _log.error(f"Error in mixed playback: {e}", exc_info=True)
+            self.is_processing = False
+            if self.mixed_source:
+                self.mixed_source.cleanup()
+                self.mixed_source = None
 
-        # Use FFmpegPCMAudio for audio playback
-        source = discord.FFmpegPCMAudio(str(filename))
-        voice_client.play(source, after=after_callback)
+    def _on_playback_done(self, error):
+        """Called when the mixed audio source finishes"""
+        if error:
+            _log.error(f"Playback error: {error}")
+        # Don't clean up here - the mixer keeps running until process_user_queues stops it
+        # This callback is only for error reporting
+
+    async def process_user_queues(self):
+        """Process all user queues and add sounds to the mixer"""
+        
+        try:
+            while self.is_processing:
+                has_work = False
+                
+                async with self.process_lock:
+                    _log.debug(f"Checking queues: {len(self.user_queues)} users, mixer streams: {len(self.mixed_source.streams) if self.mixed_source else 0}")
+                    
+                    # Check each user's queue
+                    for user_id in list(self.user_queues.keys()):
+                        queue = self.user_queues[user_id]
+                        
+                        if not queue:
+                            # Remove empty queues
+                            _log.debug(f"Removing empty queue for user {user_id}")
+                            del self.user_queues[user_id]
+                            continue
+                        
+                        # Check if user already has an active stream
+                        if self.mixed_source and user_id in self.mixed_source.streams:
+                            _log.debug(f"User {user_id} already has active stream")
+                            has_work = True  # Still have active streams
+                            continue  # User already playing, skip
+                        
+                        # Get next item from user's queue
+                        item = queue.popleft()
+                        has_work = True
+                        
+                        # Add to mixer
+                        if self.mixed_source:
+                            filename = CONFIG_AUDIO_BASE_DIR / PurePosixPath(item.query)
+                            self.mixed_source.add_stream(
+                                user_id, 
+                                str(filename), 
+                                item.user_name,
+                                item.after
+                            )
+                            _log.info(f"Started playing '{item.query}' for {item.user_name} (user queue remaining: {len(queue)})")
+                        else:
+                            _log.error("Mixed source is None, cannot add stream!")
+                
+                # Check active streams in mixer
+                if self.mixed_source:
+                    stream_count = len(self.mixed_source.streams)
+                    _log.debug(f"Active streams in mixer: {stream_count}")
+                    if stream_count > 0:
+                        has_work = True
+                
+                # Check if we should stop
+                if not has_work:
+                    async with self.process_lock:
+                        # Double check - no queues and no active streams
+                        if not self.user_queues and (not self.mixed_source or not self.mixed_source.streams):
+                            _log.info("All queues empty and no active streams, stopping")
+                            break
+                
+                # Wait for stream to finish or timeout
+                try:
+                    await asyncio.wait_for(self.stream_finished_event.wait(), timeout=0.2)
+                    self.stream_finished_event.clear()
+                    _log.debug("Stream finished event received")
+                except asyncio.TimeoutError:
+                    pass  # Timeout is expected, just check again
+        finally:
+            self.is_processing = False
+            if self.mixed_source:
+                self.mixed_source._finished = True
+                self.mixed_source.cleanup()
+                self.mixed_source = None
+            _log.info("Queue processing complete")
+
+    async def process_queue(self, voice_client):
+        """Legacy method for compatibility - redirects to mixed playback"""
+        await self.start_mixed_playback(voice_client)
+
+    async def _play_sound(self, voice_client, query: str, after: Optional[Callable[[], None]] = None):
+        """Legacy internal method - not used in mixed mode"""
+        # This method is kept for compatibility but won't be used in mixed mode
+        pass
 
     @app_commands.command(name="p", description="Plays a sound in voice channel")
     @app_commands.describe(
@@ -332,7 +560,7 @@ class AudioPlayer(commands.Cog):
             return None
 
     def stop_playback(self, voice_client, user_name: str = "System") -> dict:
-        """Stop current playback and clear queue.
+        """Stop current playback and clear all queues.
         
         Args:
             voice_client: The voice client to stop
@@ -341,18 +569,22 @@ class AudioPlayer(commands.Cog):
         Returns:
             dict with 'stopped' (bool), 'queue_cleared' (int) keys
         """
-        queue_size = len(self.queue)
+        queue_size = self._get_total_queue_size()
         was_playing = voice_client and voice_client.is_playing()
         
-        # Clear the queue
+        # Clear all user queues
         if queue_size > 0:
-            _log.info(f"{user_name} cleared {queue_size} queued items")
-            self.queue.clear()
+            _log.info(f"{user_name} cleared {queue_size} total queued items")
+            self.user_queues.clear()
         
-        # Stop current playback
+        # Stop current playback and cleanup mixer
         if was_playing:
             _log.info(f"{user_name} stopped current playback")
+            if self.mixed_source:
+                self.mixed_source.cleanup()
+                self.mixed_source = None
             voice_client.stop()
+            self.is_processing = False
         
         return {
             'stopped': was_playing,
