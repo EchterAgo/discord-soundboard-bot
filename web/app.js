@@ -146,6 +146,24 @@ createApp({
         }
     },
     methods: {
+        cleanSoundName(soundPath) {
+            // Split the path into parts
+            const parts = soundPath.split('/');
+            
+            // Get the filename (last part)
+            let filename = parts[parts.length - 1];
+            
+            // Remove .sync-conflict-* suffixes (e.g., .sync-conflict-20231215-123456)
+            filename = filename.replace(/\.sync-conflict-[0-9-]+/g, '');
+            
+            // Remove common audio file extensions
+            filename = filename.replace(/\.(mp3|wav|ogg|flac|m4a|aac|wma|opus)$/i, '');
+            
+            // Put it back together with the folder path
+            parts[parts.length - 1] = filename;
+            return parts.join('/');
+        },
+        
         handleKeyDown(event) {
             if (event.key === 'Control') {
                 this.modifierKeys.ctrl = true;

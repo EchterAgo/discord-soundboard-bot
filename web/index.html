@@ -39,6 +39,9 @@
                     <span class="badge bg-info" v-else-if="!queueStatus.is_playing">Connected</span>
                     <span class="badge bg-success" v-else>Playing</span>
                     
+                    <button class="btn btn-sm btn-outline-light" @click="loadAllSounds" title="Refresh sound list" aria-label="Refresh sound list" tabindex="0">
+                        <i class="bi bi-arrow-clockwise"></i>
+                    </button>
                     <button class="btn btn-sm btn-outline-light" @click="showHelp = !showHelp" @keydown.enter="showHelp = !showHelp" title="Help (Press ?)" aria-label="Toggle help" tabindex="0">
                         <i class="bi bi-question-circle"></i>
                     </button>
@@ -307,7 +310,7 @@
                             :aria-label="'Play ' + sound"
                             tabindex="0"
                             :data-button-index="index">
-                        <div class="button-label">{{ sound }}</div>
+                        <div class="button-label">{{ cleanSoundName(sound) }}</div>
                     </button>
                 </div>
             </div>
