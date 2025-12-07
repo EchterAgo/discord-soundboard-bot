@@ -5,9 +5,12 @@ const RPC_URL = 'https://apollo.loping.net/rpc/soundbot';
 const DISCORD_VOICE_CHANNEL_ID = '1033659964457230392';
 
 async function rpcCall(method, params = {}) {
+    const startTime = performance.now();
     try {
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+        const timeout = setTimeout(() => controller.abort(), 60000); // 60 second timeout
+        
+        console.log(`[RPC] Starting ${method} call...`);
         
         const response = await fetch(RPC_URL, {
             method: 'POST',
@@ -22,6 +25,8 @@ async function rpcCall(method, params = {}) {
         });
         
         clearTimeout(timeout);
+        const fetchTime = performance.now();
+        console.log(`[RPC] ${method} fetch completed in ${(fetchTime - startTime).toFixed(2)}ms`);
         
         // Check if the response is OK before parsing
         if (!response.ok) {
@@ -40,13 +45,18 @@ async function rpcCall(method, params = {}) {
         }
         
         const data = await response.json();
+        const endTime = performance.now();
+        console.log(`[RPC] ${method} total time: ${(endTime - startTime).toFixed(2)}ms`);
+        
         if (data.error) {
             throw new Error(data.error.message || 'RPC Error');
         }
         return data.result;
     } catch (error) {
+        const endTime = performance.now();
+        console.error(`[RPC] ${method} failed after ${(endTime - startTime).toFixed(2)}ms:`, error);
         if (error.name === 'AbortError') {
-            throw new Error('Request timeout - the server is not responding');
+            throw new Error('Request timeout after 60 seconds - the server is not responding');
         }
         throw error;
     }
@@ -57,6 +67,7 @@ createApp({
         return {
             username: localStorage.getItem('username') || '',
             theme: localStorage.getItem('theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'),
+            playMode: localStorage.getItem('playMode') || 'instant', // 'instant', 'queue', 'next'
             config: {
                 buttons: [],
                 grid_size: { cols: 6, rows: 4 },
@@ -99,6 +110,14 @@ createApp({
                 'gap': '10px',
                 'display': 'grid'
             };
+        },
+        playModeInfo() {
+            const modes = {
+                instant: { label: 'Instant', icon: 'bi-play-fill', color: 'danger' },
+                queue: { label: 'Queue', icon: 'bi-list-ul', color: 'primary' },
+                next: { label: 'Play Next', icon: 'bi-skip-forward-fill', color: 'warning' }
+            };
+            return modes[this.playMode];
         },
         filteredSounds() {
             return this.filterAndPrioritize(this.searchQuery, this.allSounds);
@@ -201,6 +220,13 @@ createApp({
             document.body.setAttribute('data-bs-theme', this.theme);
         },
         
+        togglePlayMode() {
+            const modes = ['instant', 'queue', 'next'];
+            const currentIndex = modes.indexOf(this.playMode);
+            this.playMode = modes[(currentIndex + 1) % modes.length];
+            localStorage.setItem('playMode', this.playMode);
+        },
+        
         async playSound(query) {
             if (!this.username) {
                 alert('Please enter a username first');
@@ -208,11 +234,21 @@ createApp({
             }
             
             try {
-                await rpcCall('play', {
+                const params = {
                     channelid: DISCORD_VOICE_CHANNEL_ID,
                     user_name: this.username,
                     query: query
-                });
+                };
+                
+                // Set interrupt and play_next based on playMode
+                if (this.playMode === 'instant') {
+                    params.interrupt = true;
+                } else if (this.playMode === 'next') {
+                    params.play_next = true;
+                }
+                // Default (queue mode) sets neither flag
+                
+                await rpcCall('play', params);
                 
                 // Reload config to get updated recent sounds
                 setTimeout(() => this.loadUserConfig(), 500);

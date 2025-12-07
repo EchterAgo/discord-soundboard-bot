@@ -97,6 +97,17 @@ async def http_handle_rpc_options(request):
     )
 
 
+async def http_soundboard_index(request):
+    """Serve index.html at /soundboard/"""
+    index_path = BOT_BASE_DIR / "web" / "index.html"
+    return aiohttp.web.FileResponse(index_path)
+
+
+async def http_soundboard_index_redirect(request):
+    """Redirect /soundboard/index.html to /soundboard/"""
+    raise aiohttp.web.HTTPFound("/soundboard/")
+
+
 async def start_webserver(bot: commands.Bot):
     app = aiohttp.web.Application()
 
@@ -105,6 +116,10 @@ async def start_webserver(bot: commands.Bot):
     app.router.add_get("/", http_hello)
     app.router.add_post("/rpc", http_handle_rpc)
     app.router.add_options("/rpc", http_handle_rpc_options)
+    app.router.add_get("/soundboard", http_soundboard_index)
+    app.router.add_get("/soundboard/", http_soundboard_index)
+    app.router.add_get("/soundboard/index.html", http_soundboard_index_redirect)
+    app.router.add_get("/soundboard/index-vue.html", http_soundboard_index_redirect)
     app.router.add_static("/soundboard", BOT_BASE_DIR / "web")
     runner = aiohttp.web.AppRunner(app)
     await runner.setup()
