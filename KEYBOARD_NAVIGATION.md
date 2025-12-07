@@ -10,6 +10,8 @@ The Discord Soundboard web interface now features comprehensive keyboard navigat
 | `Ctrl + F` | Focus search box |
 | `?` | Toggle help panel |
 | `S` | Toggle settings panel |
+| `Q` | Toggle queue status |
+| `F` | Toggle fullscreen mode |
 | `1` | Switch to Custom Buttons view |
 | `2` | Switch to Recent Sounds view |
 | `3` | Switch to All Sounds view |

@@ -171,6 +171,7 @@ createApp({
             showSettings: false,
             showHelp: false,
             showQueue: false,
+            isFullscreen: false,
             activeView: 'buttons', // 'buttons', 'recent', 'all'
             editingButton: null,
             buttonColors: ['primary', 'secondary', 'success', 'danger', 'warning', 'info', 'dark'],
@@ -450,6 +451,16 @@ createApp({
             const currentIndex = modes.indexOf(this.playMode);
             this.playMode = modes[(currentIndex + 1) % modes.length];
             localStorage.setItem('playMode', this.playMode);
+        },
+        
+        toggleFullscreen() {
+            if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen().catch(err => {
+                    console.error('Error attempting to enable fullscreen:', err);
+                });
+            } else {
+                document.exitFullscreen();
+            }
         },
         
         async playSound(query, event = null) {
@@ -1027,6 +1038,16 @@ createApp({
             }
         });
         
+        // Track fullscreen state changes
+        document.addEventListener('fullscreenchange', () => {
+            this.isFullscreen = !!document.fullscreenElement;
+        });
+        
+        // Track fullscreen state changes
+        document.addEventListener('fullscreenchange', () => {
+            this.isFullscreen = !!document.fullscreenElement;
+        });
+        
         // Add Ctrl+F keyboard shortcut
         document.addEventListener('keydown', (e) => {
             // Ctrl+F for search
@@ -1059,6 +1080,12 @@ createApp({
             if (e.key === 'q' && !e.ctrlKey && !e.metaKey && !e.altKey) {
                 e.preventDefault();
                 this.showQueue = !this.showQueue;
+            }
+            
+            // F for fullscreen
+            if (e.key === 'f' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+                e.preventDefault();
+                this.toggleFullscreen();
             }
             
             // 1, 2, 3 for view switching

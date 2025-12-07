@@ -32,18 +32,19 @@
                     <span class="badge bg-secondary ms-2" :title="connectedUsers + ' user(s) connected'">
                         <i class="bi bi-people-fill"></i> {{ connectedUsers }}
                     </span>
+                    <span class="badge bg-secondary ms-2" v-if="!queueStatus.connected">Not Connected</span>
+                    <span class="badge bg-info ms-2" v-else-if="!queueStatus.is_playing">Connected</span>
+                    <span class="badge bg-success ms-2" v-else>Playing</span>
                 </span>
                 <div class="d-flex align-items-center gap-2">
                     <button class="btn btn-sm" :class="'btn-' + playModeInfo.color" @click="togglePlayMode" :title="'Click to change play mode'" tabindex="0" aria-label="Play mode toggle">
                         <i class="bi" :class="playModeInfo.icon"></i> {{ playModeInfo.label }}
                     </button>
-                    
-                    <span class="badge bg-secondary" v-if="!queueStatus.connected">Not Connected</span>
-                    <span class="badge bg-info" v-else-if="!queueStatus.is_playing">Connected</span>
-                    <span class="badge bg-success" v-else>Playing</span>
-                    
                     <button class="btn btn-sm btn-outline-light" @click="showQueue = !showQueue" @keydown.enter="showQueue = !showQueue" title="Queue Status (Press Q)" aria-label="Toggle queue status" tabindex="0">
                         <i class="bi bi-list-ul"></i>
+                    </button>
+                    <button class="btn btn-sm btn-outline-light" @click="toggleFullscreen" title="Toggle Fullscreen (Press F)" aria-label="Toggle fullscreen" tabindex="0">
+                        <i class="bi" :class="isFullscreen ? 'bi-fullscreen-exit' : 'bi-fullscreen'"></i>
                     </button>
                     <button class="btn btn-sm btn-outline-light" @click="showHelp = !showHelp" @keydown.enter="showHelp = !showHelp" title="Help (Press ?)" aria-label="Toggle help" tabindex="0">
                         <i class="bi bi-question-circle"></i>
@@ -130,6 +131,7 @@
                                 <li><strong>?:</strong> Toggle this help panel</li>
                                 <li><strong>S:</strong> Toggle settings panel</li>
                                 <li><strong>Q:</strong> Toggle queue status panel</li>
+                                <li><strong>F:</strong> Toggle fullscreen mode</li>
                                 <li><strong>1/2/3:</strong> Switch to Custom/Recent/All view</li>
                             </ul>
                             <p class="small text-muted mb-0">Hold modifiers to see the mode indicator change.</p>
