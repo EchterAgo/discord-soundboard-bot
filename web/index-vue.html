@@ -22,7 +22,7 @@
     <link href="style-vue.css" rel="stylesheet">
 </head>
 
-<body>
+<body :data-theme="theme">
     <div id="app">
         <!-- Header -->
         <nav class="navbar navbar-dark bg-dark mb-3">
@@ -59,6 +59,13 @@
                             <input type="number" v-model.number="config.grid_size.cols" @change="saveConfig" min="1" max="12" class="form-control">
                         </div>
                         <div class="col-md-3">
+                            <label class="form-label">Theme:</label>
+                            <select v-model="theme" @change="saveTheme" class="form-select">
+                                <option value="light">Light</option>
+                                <option value="oled">OLED Black</option>
+                            </select>
+                        </div>
+                        <div class="col-md-3">
                             <label class="form-label">Actions:</label>
                             <div class="btn-group w-100" role="group">
                                 <button class="btn btn-outline-primary" @click="exportConfig">
@@ -71,18 +78,7 @@
                             </div>
                         </div>
                         <div class="col-12">
-                            <div class="btn-group" role="group">
-                                <button class="btn btn-outline-secondary" @click="activeView = 'buttons'">
-                                    <i class="bi bi-grid-3x3"></i> Custom Buttons
-                                </button>
-                                <button class="btn btn-outline-secondary" @click="activeView = 'recent'">
-                                    <i class="bi bi-clock-history"></i> Recent
-                                </button>
-                                <button class="btn btn-outline-secondary" @click="activeView = 'all'">
-                                    <i class="bi bi-collection"></i> All Sounds
-                                </button>
-                            </div>
-                            <button class="btn btn-warning ms-3" @click="resetConfig">
+                            <button class="btn btn-warning" @click="resetConfig">
                                 <i class="bi bi-arrow-counterclockwise"></i> Reset to Default
                             </button>
                         </div>
@@ -90,21 +86,52 @@
                 </div>
             </div>
 
+            <!-- View Selection -->
+            <div class="row mb-3">
+                <div class="col-12">
+                    <div class="btn-group w-100" role="group">
+                        <button class="btn" :class="activeView === 'buttons' ? 'btn-primary' : 'btn-outline-primary'" @click="activeView = 'buttons'">
+                            <i class="bi bi-grid-3x3"></i> Custom Buttons
+                        </button>
+                        <button class="btn" :class="activeView === 'recent' ? 'btn-primary' : 'btn-outline-primary'" @click="activeView = 'recent'">
+                            <i class="bi bi-clock-history"></i> Recent
+                        </button>
+                        <button class="btn" :class="activeView === 'all' ? 'btn-primary' : 'btn-outline-primary'" @click="activeView = 'all'">
+                            <i class="bi bi-collection"></i> All Sounds
+                        </button>
+                    </div>
+                </div>
+            </div>
+
             <!-- Quick Search -->
             <div class="row mb-3">
                 <div class="col-md-8">
-                    <div class="input-group">
+                    <div class="input-group position-relative">
                         <span class="input-group-text"><i class="bi bi-search"></i></span>
                         <input type="text" 
                                v-model="searchQuery" 
                                class="form-control" 
-                               placeholder="Search sounds..." 
-                               @keydown.enter="playSearchResult"
-                               list="sounds-datalist"
-                               autocomplete="off">
-                        <datalist id="sounds-datalist">
-                            <option v-for="sound in allSounds" :key="sound" :value="sound"></option>
-                        </datalist>
+                               placeholder="Type to search sounds..." 
+                               autocomplete="off"
+                               @focus="showSearchDropdown = true; selectedSearchIndex = -1"
+                               @input="showSearchDropdown = true; selectedSearchIndex = -1"
+                               @keydown="handleSearchKeydown">
+                        <div v-if="showSearchDropdown" class="search-dropdown" @click.stop>
+                            <div class="search-dropdown-item" 
+                                 v-for="(sound, index) in filteredSearchSounds.slice(0, 100)" 
+                                 :key="sound"
+                                 :class="{ 'selected': index === selectedSearchIndex }"
+                                 @click="selectSearchSound(sound); playSearchResult()"
+                                 @mouseenter="selectedSearchIndex = index">
+                                {{ sound }}
+                            </div>
+                            <div v-if="filteredSearchSounds.length === 0" class="search-dropdown-item text-muted">
+                                No sounds found
+                            </div>
+                            <div v-if="filteredSearchSounds.length > 100" class="search-dropdown-item text-muted small">
+                                Showing first 100 results. Type to filter more.
+                            </div>
+                        </div>
                         <button class="btn btn-primary" @click="playSearchResult">Play</button>
                         <button class="btn btn-danger" @click="stopPlayback">Stop</button>
                     </div>
@@ -165,12 +192,12 @@
             </div>
 
             <!-- Button Editor Modal -->
-            <div v-if="editingButton !== null" class="modal-overlay" @click.self="editingButton = null">
-                <div class="modal-dialog modal-dialog-centered">
-                    <div class="modal-content">
+            <div v-if="editingButton !== null" class="modal-overlay" @click.self="cancelButtonEdit">
+                <div class="modal-dialog modal-dialog-centered" @click="showSoundDropdown = false">
+                    <div class="modal-content" @click.stop>
                         <div class="modal-header">
-                            <h5 class="modal-title">Edit Button</h5>
-                            <button type="button" class="btn-close" @click="editingButton = null"></button>
+                            <h5 class="modal-title">{{ isNewButton ? 'Add Button' : 'Edit Button' }}</h5>
+                            <button type="button" class="btn-close" @click="cancelButtonEdit"></button>
                         </div>
                         <div class="modal-body">
                             <div class="mb-3">
@@ -179,9 +206,33 @@
                             </div>
                             <div class="mb-3">
                                 <label class="form-label">Sound:</label>
-                                <select v-model="config.buttons[editingButton].sound" class="form-select">
-                                    <option v-for="sound in allSounds" :key="sound" :value="sound">{{ sound }}</option>
-                                </select>
+                                <div class="position-relative">
+                                    <input type="text" 
+                                           v-model="config.buttons[editingButton].sound" 
+                                           class="form-control mb-2" 
+                                           placeholder="Type sound path or search..."
+                                           autocomplete="off"
+                                           @focus="showSoundDropdown = true; selectedSoundIndex = -1"
+                                           @input="showSoundDropdown = true; selectedSoundIndex = -1"
+                                           @keydown="handleSoundInputKeydown">
+                                    <div v-if="showSoundDropdown" class="sound-dropdown">
+                                        <div class="sound-dropdown-item" 
+                                             v-for="(sound, index) in filteredEditSounds.slice(0, 100)" 
+                                             :key="sound"
+                                             :class="{ 'selected': index === selectedSoundIndex }"
+                                             @click="selectSound(sound)"
+                                             @mouseenter="selectedSoundIndex = index">
+                                            {{ sound }}
+                                        </div>
+                                        <div v-if="filteredEditSounds.length === 0" class="sound-dropdown-item text-muted">
+                                            No sounds found
+                                        </div>
+                                        <div v-if="filteredEditSounds.length > 100" class="sound-dropdown-item text-muted small">
+                                            Showing first 100 results. Type to filter more.
+                                        </div>
+                                    </div>
+                                </div>
+                                <small class="text-muted">Start typing to filter sounds or click to browse</small>
                             </div>
                             <div class="mb-3">
                                 <label class="form-label">Color:</label>
@@ -197,7 +248,7 @@
                             </div>
                         </div>
                         <div class="modal-footer">
-                            <button type="button" class="btn btn-secondary" @click="editingButton = null">Close</button>
+                            <button type="button" class="btn btn-secondary" @click="cancelButtonEdit">Cancel</button>
                             <button type="button" class="btn btn-primary" @click="saveButtonEdit">Save</button>
                         </div>
                     </div>

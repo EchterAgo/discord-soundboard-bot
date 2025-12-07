@@ -35,6 +35,7 @@ from text2image import TextToImage
 from magischekugel import MagischeKugel
 from bloedsinn import Bloedsinn
 from stats import Statistics
+import user_config
 
 
 BOT_BASE_DIR = Path(__file__).parent.resolve()
@@ -142,6 +143,10 @@ async def jsonrpc_play(context, channelid, query, interrupt=False, play_next=Fal
             play_next=play_next,
             user_name=user_name
         )
+        
+        # Track in recent sounds
+        user_config.add_recent_sound(user_name, query)
+        
     except commands.CommandError as e:
         _log.error(f"CommandError in jsonrpc_play: {e}", exc_info=True)
         return Error(1, str(e))
@@ -292,6 +297,90 @@ async def jsonrpc_remove_queue_item(context, channelid, user_id, item_index) -> 
     _log.info(f"Removed queue item '{removed_item.query}' at index {item_index} for user {user_id}")
     
     return Success(f"Removed '{removed_item.query}' from queue")
+
+
+@method(name="get_user_config")
+async def jsonrpc_get_user_config(context, user_name: str) -> Result:
+    """Get user configuration via JSON-RPC.
+    
+    Args:
+        user_name: User identifier (username)
+        
+    Returns:
+        User configuration dictionary
+    """
+    try:
+        config = user_config.load_user_config(user_name)
+        return Success(config)
+    except Exception as e:
+        _log.error(f"Failed to get user config for {user_name}: {e}", exc_info=True)
+        return Error(1, f"Failed to load user config: {str(e)}")
+
+
+@method(name="save_user_config")
+async def jsonrpc_save_user_config(context, user_name: str, config: dict) -> Result:
+    """Save user configuration via JSON-RPC.
+    
+    Args:
+        user_name: User identifier (username)
+        config: Configuration dictionary to save
+        
+    Returns:
+        Success or error result
+    """
+    try:
+        # Validate required fields
+        if "buttons" not in config or "grid_size" not in config:
+            return InvalidParams("Config must include 'buttons' and 'grid_size'")
+        
+        success = user_config.save_user_config(user_name, config)
+        if success:
+            return Success("Configuration saved successfully")
+        else:
+            return Error(1, "Failed to save configuration")
+    except Exception as e:
+        _log.error(f"Failed to save user config for {user_name}: {e}", exc_info=True)
+        return Error(1, f"Failed to save user config: {str(e)}")
+
+
+@method(name="add_recent_sound")
+async def jsonrpc_add_recent_sound(context, user_name: str, sound_path: str) -> Result:
+    """Add a sound to user's recent sounds list.
+    
+    Args:
+        user_name: User identifier
+        sound_path: Path to the sound file
+        
+    Returns:
+        Success result
+    """
+    try:
+        user_config.add_recent_sound(user_name, sound_path)
+        return Success("Added to recent sounds")
+    except Exception as e:
+        _log.error(f"Failed to add recent sound for {user_name}: {e}", exc_info=True)
+        return Error(1, f"Failed to add recent sound: {str(e)}")
+
+
+@method(name="reset_user_config")
+async def jsonrpc_reset_user_config(context, user_name: str) -> Result:
+    """Reset user configuration to defaults.
+    
+    Args:
+        user_name: User identifier
+        
+    Returns:
+        Success or error result
+    """
+    try:
+        user_config.delete_user_config(user_name)
+        default_config = user_config.get_default_config()
+        default_config["username"] = user_name
+        user_config.save_user_config(user_name, default_config)
+        return Success(default_config)
+    except Exception as e:
+        _log.error(f"Failed to reset user config for {user_name}: {e}", exc_info=True)
+        return Error(1, f"Failed to reset user config: {str(e)}")
 
 
 @method(name="message")

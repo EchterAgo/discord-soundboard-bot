@@ -26,6 +26,7 @@ createApp({
     data() {
         return {
             username: localStorage.getItem('username') || '',
+            theme: localStorage.getItem('theme') || 'light',
             config: {
                 buttons: [],
                 grid_size: { cols: 6, rows: 4 },
@@ -49,7 +50,13 @@ createApp({
             editingButton: null,
             buttonColors: ['primary', 'secondary', 'success', 'danger', 'warning', 'info', 'dark'],
             queueRefreshInterval: null,
-            sortable: null
+            sortable: null,
+            showSoundDropdown: false,
+            selectedSoundIndex: -1,
+            editingButtonBackup: null,
+            isNewButton: false,
+            showSearchDropdown: false,
+            selectedSearchIndex: -1
         };
     },
     computed: {
@@ -61,6 +68,18 @@ createApp({
             };
         },
         filteredSounds() {
+            if (!this.searchQuery) return this.allSounds;
+            const query = this.searchQuery.toLowerCase();
+            return this.allSounds.filter(sound => sound.toLowerCase().includes(query));
+        },
+        filteredEditSounds() {
+            if (this.editingButton === null) return [];
+            const currentSound = this.config.buttons[this.editingButton].sound;
+            if (!currentSound) return this.allSounds;
+            const query = currentSound.toLowerCase();
+            return this.allSounds.filter(sound => sound.toLowerCase().includes(query));
+        },
+        filteredSearchSounds() {
             if (!this.searchQuery) return this.allSounds;
             const query = this.searchQuery.toLowerCase();
             return this.allSounds.filter(sound => sound.toLowerCase().includes(query));
@@ -128,6 +147,11 @@ createApp({
             this.loadUserConfig();
         },
         
+        saveTheme() {
+            localStorage.setItem('theme', this.theme);
+            document.body.setAttribute('data-theme', this.theme);
+        },
+        
         async playSound(query) {
             if (!this.username) {
                 alert('Please enter a username first');
@@ -153,7 +177,70 @@ createApp({
         async playSearchResult() {
             if (this.searchQuery) {
                 await this.playSound(this.searchQuery);
+                this.showSearchDropdown = false;
+                this.selectedSearchIndex = -1;
             }
+        },
+        
+        selectSearchSound(sound) {
+            this.searchQuery = sound;
+            this.showSearchDropdown = false;
+            this.selectedSearchIndex = -1;
+        },
+        
+        handleSearchKeydown(event) {
+            if (!this.showSearchDropdown || this.filteredSearchSounds.length === 0) {
+                if (event.key === 'Enter') {
+                    this.playSearchResult();
+                }
+                return;
+            }
+            
+            const maxIndex = Math.min(this.filteredSearchSounds.length, 100) - 1;
+            
+            switch(event.key) {
+                case 'ArrowDown':
+                    event.preventDefault();
+                    this.selectedSearchIndex = this.selectedSearchIndex < maxIndex ? this.selectedSearchIndex + 1 : 0;
+                    this.scrollToSearchSelected();
+                    break;
+                case 'ArrowUp':
+                    event.preventDefault();
+                    this.selectedSearchIndex = this.selectedSearchIndex > 0 ? this.selectedSearchIndex - 1 : maxIndex;
+                    this.scrollToSearchSelected();
+                    break;
+                case 'Enter':
+                    event.preventDefault();
+                    if (this.selectedSearchIndex >= 0 && this.selectedSearchIndex <= maxIndex) {
+                        this.selectSearchSound(this.filteredSearchSounds[this.selectedSearchIndex]);
+                        this.playSearchResult();
+                    } else {
+                        this.playSearchResult();
+                    }
+                    break;
+                case 'Escape':
+                    event.preventDefault();
+                    this.showSearchDropdown = false;
+                    this.selectedSearchIndex = -1;
+                    break;
+            }
+        },
+        
+        scrollToSearchSelected() {
+            this.$nextTick(() => {
+                const dropdown = document.querySelector('.search-dropdown');
+                const selected = dropdown?.querySelector('.search-dropdown-item.selected');
+                if (selected && dropdown) {
+                    const dropdownRect = dropdown.getBoundingClientRect();
+                    const selectedRect = selected.getBoundingClientRect();
+                    
+                    if (selectedRect.bottom > dropdownRect.bottom) {
+                        selected.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+                    } else if (selectedRect.top < dropdownRect.top) {
+                        selected.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+                    }
+                }
+            });
         },
         
         async stopPlayback() {
@@ -192,12 +279,16 @@ createApp({
         },
         
         addNewButton() {
-            this.config.buttons.push({
+            const newButton = {
                 id: Date.now(),
                 label: 'New Button',
-                sound: this.allSounds[0] || '',
+                sound: '',
                 color: 'primary'
-            });
+            };
+            this.config.buttons.push(newButton);
+            // Store backup of the new button
+            this.editingButtonBackup = JSON.parse(JSON.stringify(newButton));
+            this.isNewButton = true;
             // Open editor for the newly added button
             this.editingButton = this.config.buttons.length - 1;
         },
@@ -214,12 +305,93 @@ createApp({
         },
         
         editButton(index) {
+            this.editingButtonBackup = JSON.parse(JSON.stringify(this.config.buttons[index]));
+            this.isNewButton = false;
             this.editingButton = index;
+            this.showSoundDropdown = false;
+            this.selectedSoundIndex = -1;
+        },
+        
+        selectSound(sound) {
+            if (this.editingButton !== null) {
+                this.config.buttons[this.editingButton].sound = sound;
+                this.showSoundDropdown = false;
+                this.selectedSoundIndex = -1;
+            }
+        },
+        
+        handleSoundInputKeydown(event) {
+            if (!this.showSoundDropdown || this.filteredEditSounds.length === 0) {
+                return;
+            }
+            
+            const maxIndex = Math.min(this.filteredEditSounds.length, 100) - 1;
+            
+            switch(event.key) {
+                case 'ArrowDown':
+                    event.preventDefault();
+                    this.selectedSoundIndex = this.selectedSoundIndex < maxIndex ? this.selectedSoundIndex + 1 : 0;
+                    this.scrollToSelected();
+                    break;
+                case 'ArrowUp':
+                    event.preventDefault();
+                    this.selectedSoundIndex = this.selectedSoundIndex > 0 ? this.selectedSoundIndex - 1 : maxIndex;
+                    this.scrollToSelected();
+                    break;
+                case 'Enter':
+                    event.preventDefault();
+                    if (this.selectedSoundIndex >= 0 && this.selectedSoundIndex <= maxIndex) {
+                        this.selectSound(this.filteredEditSounds[this.selectedSoundIndex]);
+                    }
+                    break;
+                case 'Escape':
+                    event.preventDefault();
+                    this.showSoundDropdown = false;
+                    this.selectedSoundIndex = -1;
+                    break;
+            }
+        },
+        
+        scrollToSelected() {
+            this.$nextTick(() => {
+                const dropdown = document.querySelector('.sound-dropdown');
+                const selected = dropdown?.querySelector('.sound-dropdown-item.selected');
+                if (selected && dropdown) {
+                    const dropdownRect = dropdown.getBoundingClientRect();
+                    const selectedRect = selected.getBoundingClientRect();
+                    
+                    if (selectedRect.bottom > dropdownRect.bottom) {
+                        selected.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+                    } else if (selectedRect.top < dropdownRect.top) {
+                        selected.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+                    }
+                }
+            });
         },
         
         saveButtonEdit() {
+            this.editingButtonBackup = null;
+            this.isNewButton = false;
             this.editingButton = null;
             this.saveConfig();
+        },
+        
+        cancelButtonEdit() {
+            if (this.editingButton !== null && this.editingButtonBackup !== null) {
+                // Check if this was a new button (empty sound in backup)
+                if (this.editingButtonBackup.sound === '' && this.editingButtonBackup.label === 'New Button') {
+                    // Remove the button that was just added
+                    this.config.buttons.splice(this.editingButton, 1);
+                } else {
+                    // Restore the original button state
+                    this.config.buttons[this.editingButton] = this.editingButtonBackup;
+                }
+            }
+            this.editingButtonBackup = null;
+            this.isNewButton = false;
+            this.editingButton = null;
+            this.showSoundDropdown = false;
+            this.selectedSoundIndex = -1;
         },
         
         removeButton(index) {
@@ -331,6 +503,9 @@ createApp({
     },
     
     mounted() {
+        // Apply theme
+        document.body.setAttribute('data-theme', this.theme);
+        
         // Load initial data
         this.loadAllSounds();
         
