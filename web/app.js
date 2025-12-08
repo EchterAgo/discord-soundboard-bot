@@ -168,6 +168,8 @@ createApp({
             },
             allSounds: [],
             connectedUsers: 0,
+            connectedUserList: [],
+            showConnectedUsers: false,
             queueStatus: {
                 connected: false,
                 is_playing: false,
@@ -288,6 +290,39 @@ createApp({
             // Put it back together with the folder path
             parts[parts.length - 1] = filename;
             return parts.join('/');
+        },
+        
+        truncateHostname(hostname) {
+            if (!hostname) return '';
+            
+            // Check if it's an IPv6 address (contains colons)
+            if (hostname.includes(':')) {
+                // IPv6 address - show first and last segment
+                const parts = hostname.split(':');
+                if (parts.length <= 3) {
+                    return hostname; // Short enough, show as-is
+                }
+                // Show first::last
+                return `${parts[0]}:...:${parts[parts.length - 1]}`;
+            }
+            
+            // Check if it's an IPv4 address (only digits and dots, no letters)
+            if (/^[\d.]+$/.test(hostname)) {
+                // IPv4 address - show as-is (already short)
+                return hostname;
+            }
+            
+            // Hostname - show last 2 DNS parts
+            const parts = hostname.split('.');
+            
+            // If 2 or fewer parts, show as-is
+            if (parts.length <= 2) {
+                return hostname;
+            }
+            
+            // Show [...].lastTwoParts
+            const lastTwo = parts.slice(-2).join('.');
+            return `[...].${lastTwo}`;
         },
         
         handleKeyDown(event) {
@@ -478,9 +513,24 @@ createApp({
             }
         },
         
-        saveUsername() {
+        async saveUsername() {
             localStorage.setItem('username', this.username);
+            await this.registerUser();
             this.loadUserConfig();
+        },
+        
+        async registerUser() {
+            if (!this.username) return;
+            
+            try {
+                await rpcCall('register_user', {
+                    user_name: this.username,
+                    channelid: DISCORD_VOICE_CHANNEL_ID
+                });
+                console.log('[User] Registered as', this.username);
+            } catch (error) {
+                console.error('[User] Failed to register username:', error);
+            }
         },
         
         saveTheme() {
@@ -1031,6 +1081,9 @@ createApp({
                 if (data.connected_users !== undefined) {
                     this.connectedUsers = data.connected_users;
                 }
+                if (data.connected_user_list !== undefined) {
+                    this.connectedUserList = data.connected_user_list;
+                }
             },
             (files) => {
                 console.log('[File List] Updated with', files.length, 'files');
@@ -1061,6 +1114,11 @@ createApp({
         // Wait for WebSocket to connect before loading data
         try {
             await wsReady;
+            
+            // Register username if available
+            if (this.username) {
+                await this.registerUser();
+            }
             
             // Load initial data
             this.loadAllSounds();
@@ -1129,6 +1187,12 @@ createApp({
                 this.showQueue = !this.showQueue;
             }
             
+            // U for users
+            if (e.key === 'u' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+                e.preventDefault();
+                this.showConnectedUsers = !this.showConnectedUsers;
+            }
+            
             // F for fullscreen
             if (e.key === 'f' && !e.ctrlKey && !e.metaKey && !e.altKey) {
                 e.preventDefault();
@@ -1153,6 +1217,8 @@ createApp({
             if (e.key === 'Escape') {
                 if (this.editingButton !== null) {
                     this.cancelButtonEdit();
+                } else if (this.showConnectedUsers) {
+                    this.showConnectedUsers = false;
                 } else if (this.showHelp) {
                     this.showHelp = false;
                 } else if (this.showSettings) {

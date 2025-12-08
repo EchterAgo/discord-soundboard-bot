@@ -4,7 +4,8 @@ import logging
 import time
 import json
 import asyncio
-from typing import Set
+import socket
+from typing import Set, Dict
 from pathlib import Path
 
 import aiohttp
@@ -26,12 +27,30 @@ import user_config
 
 _log = logging.getLogger(__name__)
 
-# WebSocket connections registry
-websocket_connections: Set[aiohttp.web.WebSocketResponse] = set()
+# WebSocket connections registry - maps WebSocket to user info dict {"username": str, "ip": str, "hostname": str}
+websocket_connections: Dict = {}
 
 # File watcher
 file_observer = None
 event_loop = None
+
+
+def get_hostname_from_ip(ip: str) -> str:
+    """Get hostname from IP address using reverse DNS lookup.
+    
+    Args:
+        ip: IP address string
+        
+    Returns:
+        Hostname if found, otherwise returns the IP address
+    """
+    try:
+        # Try reverse DNS lookup with a short timeout
+        hostname, _, _ = socket.gethostbyaddr(ip)
+        return hostname
+    except (socket.herror, socket.gaierror, socket.timeout):
+        # If lookup fails, return the IP as-is
+        return ip
 
 
 class AudioFileHandler(FileSystemEventHandler):
@@ -91,7 +110,8 @@ async def broadcast_file_list_update():
                 disconnected.add(ws)
         
         # Remove disconnected clients
-        websocket_connections.difference_update(disconnected)
+        for ws in disconnected:
+            websocket_connections.pop(ws, None)
         
         _log.info(f"Broadcasted file list update to {len(websocket_connections)} clients")
         
@@ -108,7 +128,7 @@ def start_file_watcher(loop):
     file_observer = Observer()
     
     # Watch the audio directory recursively
-    file_observer.schedule(event_handler, CONFIG_AUDIO_BASE_DIR, recursive=True)
+    file_observer.schedule(event_handler, str(CONFIG_AUDIO_BASE_DIR), recursive=True)
     file_observer.start()
     
     _log.info(f"Started watching audio directory: {CONFIG_AUDIO_BASE_DIR}")
@@ -139,6 +159,7 @@ def _build_queue_status(audio_player, guild):
         "is_playing": audio_player.is_processing,
         "connected": guild.voice_client is not None,
         "connected_users": len(websocket_connections),
+        "connected_user_list": list(websocket_connections.values()),
         "user_queues": [],
         "active_streams": [],
         "total_queued": 0
@@ -203,7 +224,8 @@ async def broadcast_queue_update(bot, channelid):
                 disconnected.add(ws)
         
         # Remove disconnected clients
-        websocket_connections.difference_update(disconnected)
+        for ws in disconnected:
+            websocket_connections.pop(ws, None)
         
     except Exception as e:
         _log.error(f"Error broadcasting queue update: {e}", exc_info=True)
@@ -232,7 +254,8 @@ async def broadcast_config_update(user_name: str):
                 disconnected.add(ws)
         
         # Remove disconnected clients
-        websocket_connections.difference_update(disconnected)
+        for ws in disconnected:
+            websocket_connections.pop(ws, None)
         
         _log.info(f"Broadcasted config update notification for {user_name} to {len(websocket_connections)} clients")
         
@@ -270,7 +293,7 @@ async def jsonrpc_play(context, channelid, query, interrupt=False, play_next=Fal
     try:
         _log.debug(f"[RPC] play request started - user: {user_name}, query: {query}, interrupt: {interrupt}, play_next: {play_next}")
         
-        bot = context.app["bot"]
+        bot = context["app"]["bot"]
 
         channel = bot.get_channel(int(channelid))
         if not channel:
@@ -344,7 +367,7 @@ async def jsonrpc_stop(context, channelid, user_name="RPC") -> Result:
         channelid: Voice channel ID to stop playback in
         user_name: Display name for logging (default: "RPC")
     """
-    bot = context.app["bot"]
+    bot = context["app"]["bot"]
 
     channel = bot.get_channel(int(channelid))
     if not channel:
@@ -384,7 +407,7 @@ async def jsonrpc_queue_status(context, channelid) -> Result:
     Returns:
         Queue status including all user queues and currently playing streams
     """
-    bot = context.app["bot"]
+    bot = context["app"]["bot"]
 
     channel = bot.get_channel(int(channelid))
     if not channel:
@@ -413,7 +436,7 @@ async def jsonrpc_remove_queue_item(context, channelid, user_id, item_index) -> 
     Returns:
         Success or error result
     """
-    bot = context.app["bot"]
+    bot = context["app"]["bot"]
 
     channel = bot.get_channel(int(channelid))
     if not channel:
@@ -555,7 +578,7 @@ async def jsonrpc_message(context, channelid, content) -> Result:
     Returns:
         Success or error result
     """
-    bot = context.app["bot"]
+    bot = context["app"]["bot"]
 
     channel = bot.get_channel(int(channelid))
     if not channel:
@@ -566,13 +589,50 @@ async def jsonrpc_message(context, channelid, content) -> Result:
     return Success("Message sent successfully")
 
 
+@method(name="register_user")
+async def jsonrpc_register_user(context, user_name: str, channelid: str = "1033659964457230392") -> Result:
+    """Register the username for the current WebSocket connection.
+    
+    Args:
+        user_name: Username to associate with this connection
+        channelid: Voice channel ID for broadcasting updates (optional)
+        
+    Returns:
+        Success or error result
+    """
+    ws = context.get("ws")
+    if not ws:
+        return Error(1, "No WebSocket connection found")
+    
+    # Update the username for this connection (keep existing IP)
+    if ws in websocket_connections:
+        websocket_connections[ws]["username"] = user_name
+        _log.info(f"Updated user to '{user_name}' from IP {websocket_connections[ws]['ip']}. Total connections: {len(websocket_connections)}")
+    else:
+        # Shouldn't happen, but handle it
+        websocket_connections[ws] = {"username": user_name, "ip": "unknown"}
+        _log.warning(f"Registered user '{user_name}' for unknown WebSocket connection")
+    
+    # Broadcast updated connection list
+    bot = context["app"]["bot"]
+    await broadcast_queue_update(bot, channelid)
+    
+    return Success(f"Registered as {user_name}")
+
+
 async def handle_websocket(request):
     """Handle WebSocket connections for real-time updates and RPC commands."""
     ws = aiohttp.web.WebSocketResponse()
     await ws.prepare(request)
     
-    websocket_connections.add(ws)
-    _log.info(f"WebSocket client connected. Total connections: {len(websocket_connections)}")
+    # Get real IP from X-Real-IP header (set by reverse proxy) or fall back to remote address
+    real_ip = request.headers.get("X-Real-IP", request.remote or "unknown")
+    
+    # Get hostname via reverse DNS lookup
+    hostname = await asyncio.get_event_loop().run_in_executor(None, get_hostname_from_ip, real_ip)
+    
+    websocket_connections[ws] = {"username": "Anonymous", "ip": real_ip, "hostname": hostname}
+    _log.info(f"WebSocket client connected from {real_ip} ({hostname}). Total connections: {len(websocket_connections)}")
     
     bot = request.app["bot"]
     
@@ -585,7 +645,9 @@ async def handle_websocket(request):
                     # Handle JSON-RPC over WebSocket
                     if "method" in data:
                         from jsonrpcserver import async_dispatch
-                        response = await async_dispatch(msg.data, context=request)
+                        # Create context with request app and ws
+                        rpc_context = {"app": request.app, "ws": ws}
+                        response = await async_dispatch(msg.data, context=rpc_context)
                         await ws.send_str(response)
                     
                 except json.JSONDecodeError:
@@ -598,7 +660,13 @@ async def handle_websocket(request):
                 _log.error(f"WebSocket connection closed with exception: {ws.exception()}")
     
     finally:
-        websocket_connections.discard(ws)
+        websocket_connections.pop(ws, None)
         _log.info(f"WebSocket client disconnected. Total connections: {len(websocket_connections)}")
+        
+        # Broadcast updated connection list (use default channel)
+        try:
+            await broadcast_queue_update(bot, "1033659964457230392")
+        except Exception as e:
+            _log.warning(f"Failed to broadcast queue update on disconnect: {e}")
     
     return ws

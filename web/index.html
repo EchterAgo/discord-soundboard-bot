@@ -32,7 +32,10 @@
             <div class="container-fluid">
                 <span class="navbar-brand mb-0 h1">
                     <i class="bi bi-music-note-beamed"></i> Discord Soundboard
-                    <span class="badge bg-secondary ms-2" :title="connectedUsers + ' user(s) connected'">
+                    <span class="badge bg-secondary ms-2 cursor-pointer" 
+                          :title="connectedUsers + ' user(s) connected - Click to view'" 
+                          @click="showConnectedUsers = !showConnectedUsers"
+                          style="cursor: pointer;">
                         <i class="bi bi-people-fill"></i> {{ connectedUsers }}
                     </span>
                     <span class="badge bg-secondary ms-2" v-if="!queueStatus.connected">Not Connected</span>
@@ -133,6 +136,7 @@
                                 <li><strong>Escape:</strong> Close modals and dropdowns</li>
                                 <li><strong>?:</strong> Toggle this help panel</li>
                                 <li><strong>S:</strong> Toggle settings panel</li>
+                                <li><strong>U:</strong> Toggle connected users panel</li>
                                 <li><strong>Q:</strong> Toggle queue status panel</li>
                                 <li><strong>F:</strong> Toggle fullscreen mode</li>
                                 <li><strong>1/2/3:</strong> Switch to Custom/Recent/All view</li>
@@ -321,6 +325,30 @@
                             :data-button-index="index">
                         <div class="button-label">{{ cleanSoundName(sound) }}</div>
                     </button>
+                </div>
+            </div>
+
+            <!-- Connected Users Overlay -->
+            <div v-if="showConnectedUsers" class="users-overlay">
+                <div class="users-overlay-header bg-success text-white d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0"><i class="bi bi-people-fill"></i> Connected Users ({{ connectedUsers }})</h5>
+                    <button class="btn btn-sm btn-light ms-2" @click="showConnectedUsers = false" title="Close Users" aria-label="Close users overlay"><i class="bi bi-x-lg"></i></button>
+                </div>
+                <div class="users-overlay-body">
+                    <div v-if="connectedUserList.length === 0" class="text-muted text-center py-3">
+                        No users currently connected
+                    </div>
+                    <ul v-else class="list-group">
+                        <li v-for="(user, index) in connectedUserList" :key="index" class="list-group-item d-flex align-items-center justify-content-between">
+                            <div class="d-flex align-items-center flex-shrink-1 min-w-0">
+                                <i class="bi bi-person-circle me-2 fs-5 flex-shrink-0"></i>
+                                <span class="fw-bold text-truncate">{{ user.username }}</span>
+                            </div>
+                            <span class="badge bg-secondary flex-shrink-0 ms-2" :title="user.hostname + ' (IP: ' + user.ip + ')'" style="max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <i class="bi bi-wifi"></i> {{ truncateHostname(user.hostname) }}
+                            </span>
+                        </li>
+                    </ul>
                 </div>
             </div>
 
