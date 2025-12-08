@@ -1,62 +1,6 @@
 {
   "buttons": [
     {
-      "id": 7,
-      "label": "Hornauer",
-      "sound": "ago/hornauer.mp3",
-      "color": "primary",
-      "icon": "bi bi-megaphone-fill"
-    },
-    {
-      "id": 9,
-      "label": "Thüringer Klöße",
-      "sound": "ago/kloesse.mp3",
-      "color": "info",
-      "icon": "fas fa-utensils"
-    },
-    {
-      "id": 12,
-      "label": "Leben bedroht",
-      "sound": "ago/lebenbedroht.mp3",
-      "color": "danger",
-      "icon": "bi bi-exclamation-triangle-fill"
-    },
-    {
-      "id": 8,
-      "label": "Jede Zelle",
-      "sound": "ago/jedezelle.mp3",
-      "color": "success",
-      "icon": "bi bi-music-note-beamed"
-    },
-    {
-      "id": 21,
-      "label": "Bubble Tea Azubis",
-      "sound": "ago/bubbleteaazubis.mp3",
-      "color": "info",
-      "icon": "fas fa-mug-hot"
-    },
-    {
-      "id": 33,
-      "label": "Millionaire",
-      "sound": "ago/millionaire.mp3",
-      "color": "success",
-      "icon": "fas fa-dollar-sign"
-    },
-    {
-      "id": 1765114915800,
-      "label": "Kazoo",
-      "sound": "ago/kazoo.mp3",
-      "color": "warning",
-      "icon": "bi bi-music-note-list"
-    },
-    {
-      "id": 1765114926928,
-      "label": "Kazoo2",
-      "sound": "ago/kazoo2.mp3",
-      "color": "warning",
-      "icon": "bi bi-music-note-list"
-    },
-    {
       "id": 1,
       "label": "Alarm",
       "sound": "ago/alarm.mp3",
@@ -68,14 +12,14 @@
       "label": "Nicht so tief, Rüdiger",
       "sound": "ago/nichtsotiefruediger.mp3",
       "color": "primary",
-      "icon": "fas fa-plane"
+      "icon": "bi bi-balloon-fill"
     },
     {
       "id": 3,
       "label": "Keine Kapriolen, Rüdiger",
       "sound": "ago/keinekapriolenruediger.mp3",
       "color": "primary",
-      "icon": "fas fa-plane"
+      "icon": "bi bi-balloon-fill"
     },
     {
       "id": 4,
@@ -99,6 +43,27 @@
       "icon": "bi bi-chat-fill"
     },
     {
+      "id": 7,
+      "label": "Hornauer",
+      "sound": "ago/hornauer.mp3",
+      "color": "primary",
+      "icon": "bi bi-megaphone-fill"
+    },
+    {
+      "id": 8,
+      "label": "Jede Zelle",
+      "sound": "ago/jedezelle.mp3",
+      "color": "success",
+      "icon": "bi bi-music-note-beamed"
+    },
+    {
+      "id": 9,
+      "label": "Thüringer Klöße",
+      "sound": "ago/kloesse.mp3",
+      "color": "info",
+      "icon": "fas fa-utensils"
+    },
+    {
       "id": 10,
       "label": "Die Nudel-Frucht",
       "sound": "ago/nudelfrucht.mp3",
@@ -111,6 +76,13 @@
       "sound": "ago/dergeraet.mp3",
       "color": "secondary",
       "icon": "bi bi-gear-fill"
+    },
+    {
+      "id": 12,
+      "label": "Leben bedroht",
+      "sound": "ago/lebenbedroht.mp3",
+      "color": "danger",
+      "icon": "bi bi-exclamation-triangle-fill"
     },
     {
       "id": 13,
@@ -169,6 +141,20 @@
       "icon": "fas fa-beer"
     },
     {
+      "id": 21,
+      "label": "Bubble Tea Azubis",
+      "sound": "ago/bubbleteaazubis.mp3",
+      "color": "info",
+      "icon": "fas fa-mug-hot"
+    },
+    {
+      "id": 22,
+      "label": "Polizei Verhaften",
+      "sound": "ago/buenzli_verhaften.mp3",
+      "color": "danger",
+      "icon": "bi bi-shield-fill-exclamation"
+    },
+    {
       "id": 23,
       "label": "Sofort Aufhören",
       "sound": "ago/buenzli_sofortaufhoeren.mp3",
@@ -188,13 +174,6 @@
       "sound": "ago/buenzli_verboten.mp3",
       "color": "danger",
       "icon": "bi bi-x-octagon-fill"
-    },
-    {
-      "id": 22,
-      "label": "Polizei Verhaften",
-      "sound": "ago/buenzli_verhaften.mp3",
-      "color": "danger",
-      "icon": "bi bi-shield-fill-exclamation"
     },
     {
       "id": 26,
@@ -218,60 +197,11 @@
       "icon": "fas fa-gamepad"
     },
     {
-      "id": 34,
-      "label": "Pacman Dead",
-      "sound": "ago/pacman_death.mp3",
-      "color": "danger",
-      "icon": "fas fa-ghost"
-    },
-    {
-      "id": 37,
-      "label": "Wololo",
-      "sound": "ago/wololo.mp3",
-      "color": "primary",
-      "icon": "bi bi-magic"
-    },
-    {
-      "id": 35,
-      "label": "Quake Jump",
-      "sound": "ago/quake_jump.mp3",
+      "id": 29,
+      "label": "Quack",
+      "sound": "ago/quack.mp3",
       "color": "info",
-      "icon": "bi bi-lightning-fill"
-    },
-    {
-      "id": 36,
-      "label": "Sam Jump",
-      "sound": "ago/ss/jump.wav",
-      "color": "info",
-      "icon": "bi bi-arrow-up-circle-fill"
-    },
-    {
-      "id": 1765126166905,
-      "label": "HL Step1",
-      "sound": "ago/hl/npc_step1.wav",
-      "color": "primary",
-      "icon": "bi bi-boot"
-    },
-    {
-      "id": 1765126190136,
-      "label": "HL Step2",
-      "sound": "ago/hl/npc_step2.wav",
-      "color": "primary",
-      "icon": "bi bi-boot"
-    },
-    {
-      "id": 1765126192432,
-      "label": "HL Step3",
-      "sound": "ago/hl/npc_step3.wav",
-      "color": "primary",
-      "icon": "bi bi-boot"
-    },
-    {
-      "id": 1765126194008,
-      "label": "HL Step4",
-      "sound": "ago/hl/npc_step4.wav",
-      "color": "primary",
-      "icon": "bi bi-boot"
+      "icon": "fas fa-duck"
     },
     {
       "id": 30,
@@ -279,13 +209,6 @@
       "sound": "ago/cash.mp3",
       "color": "success",
       "icon": "fas fa-money-bill"
-    },
-    {
-      "id": 29,
-      "label": "Quack",
-      "sound": "ago/quack.mp3",
-      "color": "info",
-      "icon": "fas fa-duck"
     },
     {
       "id": 31,
@@ -300,6 +223,41 @@
       "sound": "ago/spaghett.mp3",
       "color": "warning",
       "icon": "fas fa-pizza-slice"
+    },
+    {
+      "id": 33,
+      "label": "Millionaire",
+      "sound": "ago/millionaire.mp3",
+      "color": "success",
+      "icon": "fas fa-dollar-sign"
+    },
+    {
+      "id": 34,
+      "label": "Pacman Dead",
+      "sound": "ago/pacman_death.mp3",
+      "color": "danger",
+      "icon": "fas fa-ghost"
+    },
+    {
+      "id": 35,
+      "label": "Quake Jump",
+      "sound": "ago/quake_jump.mp3",
+      "color": "info",
+      "icon": "bi bi-lightning-fill"
+    },
+    {
+      "id": 36,
+      "label": "Sam Jump",
+      "sound": "ago/ss/jump.mp3",
+      "color": "info",
+      "icon": "bi bi-arrow-up-circle-fill"
+    },
+    {
+      "id": 37,
+      "label": "Wololo",
+      "sound": "ago/wololo.mp3",
+      "color": "primary",
+      "icon": "bi bi-magic"
     },
     {
       "id": 38,
@@ -449,25 +407,74 @@
       "icon": "bi bi-question-circle-fill"
     },
     {
+      "id": 59,
+      "label": "Alpha 1 Enough of this",
+      "sound": "ago/alpha1.mp3",
+      "color": "primary",
+      "icon": "bi bi-trophy-fill"
+    },
+    {
+      "id": 60,
+      "label": "Alpha 2 Don't tell me",
+      "sound": "ago/alpha2.mp3",
+      "color": "primary",
+      "icon": "bi bi-trophy-fill"
+    },
+    {
+      "id": 61,
+      "label": "Alpha 3 I am now the alpha",
+      "sound": "ago/alpha3.mp3",
+      "color": "primary",
+      "icon": "bi bi-trophy-fill"
+    },
+    {
+      "id": 62,
+      "label": "Alpha 4 Not how this works",
+      "sound": "ago/alpha4.mp3",
+      "color": "primary",
+      "icon": "bi bi-trophy-fill"
+    },
+    {
+      "id": 63,
+      "label": "Alpha 5 Takes priority",
+      "sound": "ago/alpha5.mp3",
+      "color": "primary",
+      "icon": "bi bi-trophy-fill"
+    },
+    {
+      "id": 64,
+      "label": "Alpha 6 Sit in his seat",
+      "sound": "ago/alpha6.mp3",
+      "color": "primary",
+      "icon": "bi bi-trophy-fill"
+    },
+    {
+      "id": 65,
+      "label": "Alpha 7 Doesn't have to listen",
+      "sound": "ago/alpha7.mp3",
+      "color": "primary",
+      "icon": "bi bi-trophy-fill"
+    },
+    {
+      "id": 66,
+      "label": "Alpha 8 Consequences still apply",
+      "sound": "ago/alpha8.mp3",
+      "color": "primary",
+      "icon": "bi bi-trophy-fill"
+    },
+    {
+      "id": 67,
+      "label": "Alpha 9 Doesn't take punishment",
+      "sound": "ago/alpha9.mp3",
+      "color": "primary",
+      "icon": "bi bi-trophy-fill"
+    },
+    {
       "id": 68,
       "label": "Gabe Axel Gembe",
       "sound": "ago/gabe_axel_gembe.mp3",
       "color": "secondary",
       "icon": "bi bi-person-fill"
-    },
-    {
-      "id": 1765121022688,
-      "label": "Bingo Bango",
-      "sound": "mimi/bingo bango bongo bish bash bosh.mp3",
-      "color": "dark",
-      "icon": "bi bi-dice-5-fill"
-    },
-    {
-      "id": 1765132399497,
-      "label": "Schnitzel",
-      "sound": "ago/schnitzel.mp3",
-      "color": "danger",
-      "icon": "fas fa-drumstick-bite"
     }
   ],
   "grid_size": {
@@ -475,38 +482,14 @@
     "rows": 12
   },
   "recent_sounds": [
-    "ago/buenzli_verhaften.mp3",
-    "ago/buenzli_verboten.mp3",
-    "ago/buenzli_sofortaufhoeren2.mp3",
-    "ago/buenzli_sofortaufhoeren.mp3",
-    "ago/fressehalten.mp3",
-    "ago/sofroehlich.mp3",
-    "ago/nudelfrucht.mp3",
-    "ago/bb/tpformybunghole.mp3",
-    "ago/schnitzel.mp3",
-    "ago/seehofer_gruenen.mp3",
-    "ago/seehofer_gruenen2.mp3",
-    "ago/mimi2.mp3",
-    "ago/mimi.mp3",
-    "ago/mimi3.mp3",
-    "ago/mimi4.mp3",
-    "ago/mimi5.mp3",
-    "ago/mimi6.mp3",
-    "ago/mimi7.mp3",
-    "ago/mimi11.mp3",
-    "ago/mimi12.mp3"
+    "ago/quack.mp3",
+    "ago/minecraft_zombie2.mp3",
+    "ago/alarm.mp3",
+    "ago/jaloley.mp3"
   ],
   "favorites": [],
   "version": "1.0",
   "created_at": "2025-12-07T00:00:00.000Z",
-  "updated_at": "2025-12-08T10:47:36.650053",
-  "available_colors": [
-    "primary",
-    "secondary",
-    "success",
-    "danger",
-    "warning",
-    "info",
-    "dark"
-  ]
+  "updated_at": "2025-12-07T13:18:09.651295",
+  "username": "Stebo"
 }
