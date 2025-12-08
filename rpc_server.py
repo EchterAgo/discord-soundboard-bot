@@ -278,7 +278,7 @@ async def jsonrpc_search(context, query) -> Result:
 
 
 @method(name="play")
-async def jsonrpc_play(context, channelid, query, interrupt=False, play_next=False, user_name="RPC", audio_filters=None) -> Result:
+async def jsonrpc_play(context, channelid, query, interrupt=False, play_next=False, user_name="RPC", audio_filters=None, request_timestamp=None) -> Result:
     """Play a sound via JSON-RPC.
     
     Args:
@@ -288,6 +288,7 @@ async def jsonrpc_play(context, channelid, query, interrupt=False, play_next=Fal
         play_next: If True, play after current sound (default: False, adds to end of queue)
         user_name: Display name for logging (default: "RPC")
         audio_filters: Dict containing volume_boost and audio filter settings (default: None)
+        request_timestamp: Timestamp when the request was initiated (for latency tracking, default: None)
     """
     start_time = time.time()
     
@@ -340,7 +341,8 @@ async def jsonrpc_play(context, channelid, query, interrupt=False, play_next=Fal
             play_next=play_next,
             user_name=user_name,
             volume_boost=volume_boost,
-            audio_filters=audio_filters
+            audio_filters=audio_filters,
+            request_timestamp=request_timestamp
         )
         queue_time = (time.time() - queue_start) * 1000
         _log.debug(f"[RPC] Sound queued in {queue_time:.2f}ms")

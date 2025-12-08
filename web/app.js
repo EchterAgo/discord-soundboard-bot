@@ -42,7 +42,7 @@ let wsCallbacks = new Map();
 let wsReadyPromise = null;
 let wsReadyResolve = null;
 
-function initWebSocket(onQueueUpdate, onFileListUpdate, onConfigUpdate) {
+function initWebSocket(onQueueUpdate, onFileListUpdate, onConfigUpdate, onConnected) {
     if (websocket && (websocket.readyState === WebSocket.CONNECTING || websocket.readyState === WebSocket.OPEN)) {
         return wsReadyPromise;
     }
@@ -64,6 +64,10 @@ function initWebSocket(onQueueUpdate, onFileListUpdate, onConfigUpdate) {
         if (wsReadyResolve) {
             wsReadyResolve();
             wsReadyResolve = null;
+        }
+        // Call the onConnected callback (for re-registering username on reconnect)
+        if (onConnected) {
+            onConnected();
         }
     };
     
@@ -147,7 +151,7 @@ function initWebSocket(onQueueUpdate, onFileListUpdate, onConfigUpdate) {
         if (!wsReconnectTimer) {
             wsReconnectTimer = setTimeout(() => {
                 wsReconnectTimer = null;
-                initWebSocket(onQueueUpdate, onFileListUpdate, onConfigUpdate);
+                initWebSocket(onQueueUpdate, onFileListUpdate, onConfigUpdate, onConnected);
             }, 2000);
         }
     };
@@ -744,12 +748,16 @@ createApp({
                 return;
             }
             
+            // Capture timestamp at the moment of button press for latency tracking
+            const request_timestamp = Date.now() / 1000; // Convert to seconds for Python
+            
             try {
                 const params = {
                     channelid: DISCORD_VOICE_CHANNEL_ID,
                     user_name: this.username,
                     query: query,
-                    audio_filters: this.prepareAudioFilters(audio_filters)
+                    audio_filters: this.prepareAudioFilters(audio_filters),
+                    request_timestamp: request_timestamp
                 };
                 
                 // Determine play mode based on modifier keys or current playMode
@@ -1525,6 +1533,13 @@ createApp({
                     } catch (error) {
                         console.error('[Config] Failed to fetch updated config:', error);
                     }
+                }
+            },
+            // onConnected callback - re-register username on reconnect
+            async () => {
+                if (this.username) {
+                    console.log('[WebSocket] Re-registering username after reconnect:', this.username);
+                    await this.registerUser();
                 }
             }
         );

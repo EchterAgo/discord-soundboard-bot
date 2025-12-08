@@ -53,11 +53,12 @@ def get_sounds() -> Iterator[str]:
 
 
 class QueueItem:
-    def __init__(self, query: str, user_id: int, user_name: str = "System", after: Optional[Callable[[], None]] = None, volume_boost: float = 1.0, audio_filters: Optional[Dict] = None):
+    def __init__(self, query: str, user_id: int, user_name: str = "System", after: Optional[Callable[[], None]] = None, volume_boost: float = 1.0, audio_filters: Optional[Dict] = None, request_timestamp: Optional[float] = None):
         self.query = query
         self.user_id = user_id
         self.user_name = user_name
         self.after = after
+        self.request_timestamp = request_timestamp
         # Handle backward compatibility: volume_boost can be in audio_filters or as separate param
         self.audio_filters = audio_filters or {}
         if 'volume_boost' in self.audio_filters:
@@ -69,7 +70,7 @@ class QueueItem:
 
 class UserAudioStream:
     """Represents an audio stream for a single user"""
-    def __init__(self, filepath: str, user_id: int, user_name: str, volume_boost: float = 1.0, audio_filters: Optional[Dict] = None):
+    def __init__(self, filepath: str, user_id: int, user_name: str, volume_boost: float = 1.0, audio_filters: Optional[Dict] = None, request_timestamp: Optional[float] = None):
         self.filepath = filepath
         self.user_id = user_id
         self.user_name = user_name
@@ -82,6 +83,8 @@ class UserAudioStream:
         self.process: Optional[subprocess.Popen] = None
         self.finished = False
         self.after_callback: Optional[Callable[[], None]] = None
+        self.request_timestamp = request_timestamp  # Timestamp when playback was requested
+        self.first_byte_timestamp: Optional[float] = None  # Timestamp when first byte was read
         base_duration = get_audio_duration(filepath)
         
         # Adjust duration if timestretch is applied
@@ -194,7 +197,7 @@ class UserAudioStream:
             '-f', 's16le',
             '-ar', '48000',
             '-ac', '2',
-            '-bufsize', '64k',  # Smaller buffer for lower latency
+            '-bufsize', '16k',  # TEST 2: Reduced buffer for lower latency (was 64k)
             '-loglevel', 'warning',
             'pipe:1'
         ])
@@ -202,7 +205,8 @@ class UserAudioStream:
             self.process = subprocess.Popen(
                 args,
                 stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,  # Prevent stderr buffer from blocking FFmpeg
+                                            # TODO: Consider logging stderr to a pipe for debugging
                 pass_fds=(progress_w,)
             )
             # Close write end in parent, keep read end
@@ -272,6 +276,13 @@ class UserAudioStream:
                 self.finished = True
                 if self.after_callback:
                     self.after_callback()
+            else:
+                # Track first byte latency
+                if self.first_byte_timestamp is None:
+                    self.first_byte_timestamp = time.time()
+                    if self.request_timestamp is not None:
+                        latency_ms = (self.first_byte_timestamp - self.request_timestamp) * 1000
+                        _log.info(f"[LATENCY] {self.user_name}: {latency_ms:.2f}ms from button press to first byte decoded (file: {self.filepath})")
             return data
         except Exception as e:
             _log.error(f"Error reading from stream: {e}")
@@ -318,7 +329,7 @@ class MixedAudioSource(discord.AudioSource):
         self.stream_changed_callback = stream_changed_callback
         self.event_loop = event_loop
         
-    def add_stream(self, user_id: int, filepath: str, user_name: str, after: Optional[Callable[[], None]] = None, volume_boost: float = 1.0, audio_filters: Optional[Dict] = None):
+    def add_stream(self, user_id: int, filepath: str, user_name: str, after: Optional[Callable[[], None]] = None, volume_boost: float = 1.0, audio_filters: Optional[Dict] = None, request_timestamp: Optional[float] = None):
         """Add or replace a user's audio stream"""
         with self.lock:
             # Clean up existing stream for this user
@@ -328,7 +339,7 @@ class MixedAudioSource(discord.AudioSource):
                 _log.info(f"Replaced stream for {user_name} (ID: {user_id})")
             
             # Create and start new stream
-            stream = UserAudioStream(filepath, user_id, user_name, volume_boost, audio_filters)
+            stream = UserAudioStream(filepath, user_id, user_name, volume_boost, audio_filters, request_timestamp)
             stream.after_callback = after
             stream.start()
             # Assignment triggers ObservableDict callback
@@ -533,7 +544,7 @@ class AudioPlayer(commands.Cog):
             await interaction.followup.send(content=str(e), ephemeral=True)
             raise
 
-    async def queue_sound(self, ctx, query: str, user_id: int, after: Optional[Callable[[], None]] = None, interrupt: bool = False, play_next: bool = False, user_name: str = "System", volume_boost: float = 1.0, audio_filters: Optional[Dict] = None):
+    async def queue_sound(self, ctx, query: str, user_id: int, after: Optional[Callable[[], None]] = None, interrupt: bool = False, play_next: bool = False, user_name: str = "System", volume_boost: float = 1.0, audio_filters: Optional[Dict] = None, request_timestamp: Optional[float] = None):
         """Queue a sound to play in the user's personal queue.
         
         Args:
@@ -546,6 +557,7 @@ class AudioPlayer(commands.Cog):
             user_name: Display name of user requesting playback
             volume_boost: Volume multiplier (0.0 to 3.0, default 1.0)
             audio_filters: Dictionary of audio filter settings
+            request_timestamp: Timestamp when the request was initiated (for latency tracking)
         """
         if not ctx.voice_client:
             raise commands.CommandError("Bot is not connected to a voice channel.")
@@ -559,7 +571,7 @@ class AudioPlayer(commands.Cog):
         if not filename.is_file():
             raise commands.CommandError("Audio file not found.")
 
-        item = QueueItem(query, user_id, user_name, after, volume_boost, audio_filters)
+        item = QueueItem(query, user_id, user_name, after, volume_boost, audio_filters, request_timestamp)
         
         # Check if voice client changed (reconnection) - need to restart playback
         if self.current_voice_client is not None and self.current_voice_client != ctx.voice_client:
@@ -651,11 +663,18 @@ class AudioPlayer(commands.Cog):
                             item.user_name,
                             item.after,
                             item.volume_boost,
-                            item.audio_filters
+                            item.audio_filters,
+                            item.request_timestamp
                         )
                         _log.info(f"Started playing '{item.query}' for {item.user_name}")
 
-            voice_client.play(self.mixed_source, after=lambda e: self._on_playback_done(e))
+            voice_client.play(
+                self.mixed_source,
+                after=lambda e: self._on_playback_done(e),
+                application='lowdelay',
+                bitrate=128,
+                fec=True
+            )
 
             # Process remaining queue items in background (don't await)
             asyncio.create_task(self.process_user_queues())
@@ -691,7 +710,13 @@ class AudioPlayer(commands.Cog):
                         # Try to restart playback
                         if self.mixed_source:
                             try:
-                                self.current_voice_client.play(self.mixed_source, after=lambda e: self._on_playback_done(e))
+                                self.current_voice_client.play(
+                                    self.mixed_source,
+                                    after=lambda e: self._on_playback_done(e),
+                                    application='lowdelay',  # TEST 1: Low-delay opus encoder
+                                    bitrate=128,
+                                    fec=True
+                                )
                                 _log.info("Restarted voice client playback")
                             except Exception as e:
                                 _log.error(f"Failed to restart playback: {e}")
@@ -735,7 +760,8 @@ class AudioPlayer(commands.Cog):
                                 item.user_name,
                                 item.after,
                                 item.volume_boost,
-                                item.audio_filters
+                                item.audio_filters,
+                                item.request_timestamp
                             )
                             _log.info(f"Started playing '{item.query}' for {item.user_name} (user queue remaining: {len(queue)})")
                         else:
