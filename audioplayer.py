@@ -332,6 +332,7 @@ class AudioPlayer(commands.Cog):
         self.is_processing = False
         self.process_lock = asyncio.Lock()
         self.stream_finished_event = asyncio.Event()
+        self.current_voice_client = None  # Track current voice client to detect reconnections
 
     @commands.command()
     @commands.guild_only()
@@ -436,6 +437,18 @@ class AudioPlayer(commands.Cog):
 
         item = QueueItem(query, user_id, user_name, after)
         
+        # Check if voice client changed (reconnection) - need to restart playback
+        if self.current_voice_client is not None and self.current_voice_client != ctx.voice_client:
+            _log.warning("Voice client changed during queue_sound - resetting playback state")
+            # Clean up old state without the lock to avoid deadlock
+            if self.mixed_source:
+                self.mixed_source.cleanup()
+                self.mixed_source = None
+            self.is_processing = False
+            if self.stream_finished_event:
+                self.stream_finished_event.set()
+            self.current_voice_client = ctx.voice_client
+        
         should_start_playback = False
         async with self.process_lock:
             # If interrupt, stop this user's current stream immediately
@@ -473,7 +486,21 @@ class AudioPlayer(commands.Cog):
 
     async def start_mixed_playback(self, voice_client):
         """Start the mixed audio playback system"""
+        # Check if voice client has changed (reconnection)
+        if self.current_voice_client is not None and self.current_voice_client != voice_client:
+            _log.warning("Voice client changed - cleaning up old playback state")
+            # Clean up old state
+            if self.mixed_source:
+                self.mixed_source.cleanup()
+                self.mixed_source = None
+            self.is_processing = False
+            if self.stream_finished_event:
+                self.stream_finished_event.set()
+        
+        self.current_voice_client = voice_client
+        
         if self.is_processing:
+            _log.debug("Already processing, not starting new playback")
             return
         
         self.is_processing = True
@@ -533,6 +560,20 @@ class AudioPlayer(commands.Cog):
             
             while self.is_processing:
                 has_work = False
+                
+                # Safety check: if we're processing but voice client is not playing, something is wrong
+                if self.current_voice_client and not self.current_voice_client.is_playing():
+                    if self.user_queues or (self.mixed_source and self.mixed_source.streams):
+                        _log.warning("Voice client not playing but we have work - restarting playback")
+                        # Try to restart playback
+                        if self.mixed_source:
+                            try:
+                                self.current_voice_client.play(self.mixed_source, after=lambda e: self._on_playback_done(e))
+                                _log.info("Restarted voice client playback")
+                            except Exception as e:
+                                _log.error(f"Failed to restart playback: {e}")
+                                # If we can't restart, clean up and exit
+                                break
                 
                 # Check if we should send a progress update (throttled)
                 current_time = time.time()
@@ -734,13 +775,17 @@ class AudioPlayer(commands.Cog):
             self.user_queues.clear()
         
         # Stop current playback and cleanup mixer
-        if was_playing:
-            _log.info(f"{user_name} stopped current playback")
+        if was_playing or self.is_processing:
+            _log.info(f"{user_name} stopped current playback (was_playing={was_playing}, is_processing={self.is_processing})")
             if self.mixed_source:
                 self.mixed_source.cleanup()
                 self.mixed_source = None
-            voice_client.stop()
+            if voice_client:
+                voice_client.stop()
             self.is_processing = False
+            # Signal the event to wake up the processing loop so it can exit
+            if self.stream_finished_event:
+                self.stream_finished_event.set()
         
         return {
             'stopped': was_playing,
