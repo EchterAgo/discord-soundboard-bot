@@ -237,7 +237,41 @@ createApp({
             return this.filterAndPrioritize(currentSound, this.allSounds);
         }
     },
+    watch: {
+        'queueStatus.is_playing'(isPlaying) {
+            this.updateFavicon(isPlaying);
+        },
+        'queueStatus.connected'(isConnected) {
+            // Update favicon when connection status changes
+            this.updateFavicon(this.queueStatus.is_playing);
+        }
+    },
     methods: {
+        updateFavicon(isPlaying) {
+            // Create SVG favicon with dynamic color
+            const color = isPlaying ? '#22c55e' : '#5865F2'; // Green when playing, Discord blue otherwise
+            const svg = `
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+                  <circle cx="32" cy="32" r="32" fill="${color}"/>
+                  <path d="M 22 22 L 22 42 L 28 42 L 38 50 L 38 14 L 28 22 Z" fill="#FFFFFF"/>
+                  <path d="M 42 24 Q 46 28, 46 32 Q 46 36, 42 40" stroke="#FFFFFF" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+                  <path d="M 46 20 Q 52 26, 52 32 Q 52 38, 46 44" stroke="#FFFFFF" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+                </svg>
+            `;
+            
+            // Convert SVG to data URL
+            const svgBlob = new Blob([svg], { type: 'image/svg+xml' });
+            const url = URL.createObjectURL(svgBlob);
+            
+            // Update favicon
+            let link = document.querySelector('link[rel="icon"]');
+            if (!link) {
+                link = document.createElement('link');
+                link.rel = 'icon';
+                document.head.appendChild(link);
+            }
+            link.href = url;
+        },
         cleanSoundName(soundPath) {
             // Split the path into parts
             const parts = soundPath.split('/');
@@ -986,6 +1020,9 @@ createApp({
     async mounted() {
         // Apply theme
         document.body.setAttribute('data-bs-theme', this.theme);
+        
+        // Set initial favicon
+        this.updateFavicon(false);
         
         // Initialize WebSocket with queue update handler and wait for it to be ready
         const wsReady = initWebSocket(
