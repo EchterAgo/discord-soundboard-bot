@@ -4,7 +4,7 @@
       "id": 1765106137302,
       "label": "bingo",
       "sound": "mimi/bingo bango bongo bish bash bosh.mp3",
-      "color": "primary",
+      "color": "custom",
       "icon": "bi bi-dice-5-fill"
     },
     {
@@ -41,27 +41,49 @@
     "rows": 12
   },
   "recent_sounds": [
-    "mimi/bingo bango bongo bish bash bosh.mp3",
-    "ago/fressehalten.mp3",
-    "ago/wololo.mp3",
-    "mimi/schnitzel3.mp3",
-    "mimi/noway.mp3",
+    "stebo/total.mp3",
+    "timmyRS/Hitler/Volk.mp3",
+    "timmyRS/Millionair/bg.mp3",
+    "downloads/The Boys/Fuckin finally.opus",
+    "mimi/esreicht.mp4",
     "mimi/drin.mp3",
-    "ago/ezio.mp3",
-    "ago/minecraft_zombie2.mp3",
-    "ago/mother.mp3",
-    "stebo/hattrick2.mp3",
-    "stebo/deinemutter.sync-conflict-20250323-013955-57EG3XI.mp3",
-    "albatraoz2.mp3",
-    "wtf2.mp3",
-    "sexy_bitch.mp3",
-    "ago/supermario.mp3",
-    "stebo/neu/arsch1.mp3",
-    "mimi/schnitzel2.mp3"
+    "mimi/bingo bango bongo bish bash bosh.mp3",
+    "mimi/ausgelastet.mp3",
+    "mimi/schnitzel2.mp3",
+    "mimi/schnitzel3.mp3",
+    "music/dxrk_rave.mp3",
+    "mimi/noway.mp3",
+    "stebo/andreas.mp3",
+    "stebo/neu/reh.mp3",
+    "stebo/neu/schoen.mp3",
+    "timmyRS/SFX/WOW.mp3",
+    "stebo/neu/blockernutte.mp3",
+    "ago/bb/money.mp3",
+    "stebo/blitz.mp3",
+    "stebo/neu/ruhe.mp3"
   ],
   "favorites": [],
   "version": "1.0",
   "created_at": "2025-12-07T00:00:00.000Z",
-  "updated_at": "2025-12-08T09:29:57.949367",
-  "username": "Straubender"
+  "updated_at": "2025-12-08T14:35:27.430489",
+  "username": "Straubender",
+  "available_colors": [
+    "primary",
+    "secondary",
+    "success",
+    "danger",
+    "warning",
+    "info",
+    "dark"
+  ],
+  "custom_colors": [
+    {
+      "name": "custom",
+      "rgb": "#000080"
+    },
+    {
+      "name": "custom1",
+      "rgb": "#000000"
+    }
+  ]
 }

@@ -4,6 +4,37 @@ const { createApp } = Vue;
 const WS_URL = 'wss://apollo.loping.net/ws';
 const DISCORD_VOICE_CHANNEL_ID = '1033659964457230392';
 
+// Predefined colors - always available, not saved to config
+const PREDEFINED_COLORS = [
+    { name: 'primary', rgb: '' },
+    { name: 'secondary', rgb: '' },
+    { name: 'success', rgb: '' },
+    { name: 'danger', rgb: '' },
+    { name: 'warning', rgb: '' },
+    { name: 'info', rgb: '' },
+    { name: 'dark', rgb: '' }
+];
+
+// Default audio filter values
+const DEFAULT_AUDIO_FILTERS = {
+    volume_boost: 1.0,
+    compressor: false,
+    bass_boost: 0,
+    treble_boost: 0,
+    highpass: 0,
+    lowpass: 0,
+    chorus: false,
+    earwax: false,
+    rubberband_pitch: 0,
+    rubberband_tempo: 1.0,
+    silence_remove: false,
+    tremolo_freq: 0,
+    tremolo_depth: 0,
+    vibrato_freq: 0,
+    vibrato_depth: 0,
+    supereq_bands: [0, 0, 0, 0, 0, 0, 0, 0, 0]
+};
+
 // WebSocket connection management
 let websocket = null;
 let wsReconnectTimer = null;
@@ -39,6 +70,20 @@ function initWebSocket(onQueueUpdate, onFileListUpdate, onConfigUpdate) {
     websocket.onmessage = (event) => {
         try {
             const data = JSON.parse(event.data);
+            
+            // Handle pong responses to calculate RTT
+            if (data.type === 'pong') {
+                const rtt = Date.now() - (window.lastPingTimestamp || Date.now());
+                // Send RTT back to server via RPC so other clients see it
+                if (websocket && websocket.readyState === WebSocket.OPEN) {
+                    try {
+                        rpcCall('update_ping', { ping_ms: rtt }).catch(() => {});
+                    } catch (e) {
+                        // Silently ignore ping update failures
+                    }
+                }
+                return; // Don't process as regular message
+            }
             
             // Handle queue updates
             if (data.type === 'queue_update') {
@@ -162,11 +207,13 @@ createApp({
                 grid_size: { cols: 6, rows: 4 },
                 recent_sounds: [],
                 favorites: [],
-                available_colors: ['primary', 'secondary', 'success', 'danger', 'warning', 'info', 'dark'],
+                custom_colors: [],
+                queue_list_as_overlay: true,
                 version: "1.0",
                 created_at: null,
                 updated_at: null
             },
+            PREDEFINED_COLORS: PREDEFINED_COLORS,
             allSounds: [],
             connectedUsers: 0,
             connectedUserList: [],
@@ -181,7 +228,7 @@ createApp({
             searchQuery: '',
             showSettings: false,
             showHelp: false,
-            showQueue: false,
+            showQueue: localStorage.getItem('showQueue') === 'true',
             isFullscreen: false,
             activeView: 'buttons', // 'buttons', 'recent', 'all'
             editingButton: null,
@@ -207,7 +254,13 @@ createApp({
     },
     computed: {
         buttonColors() {
-            return this.config.available_colors || ['primary', 'secondary', 'success', 'danger', 'warning', 'info', 'dark'];
+            // Combine predefined colors with custom colors
+            const customColors = this.config.custom_colors || [];
+            return [...PREDEFINED_COLORS, ...customColors];
+        },
+        getColorClassName(color) {
+            if (typeof color === 'string') return color;
+            return color.name;
         },
         bootstrapIcons() {
             return this.getBootstrapIcons();
@@ -238,11 +291,27 @@ createApp({
                 'semantic': this.semanticIcons
             }[this.iconLibrary] || [];
             
-            if (!this.iconSearchQuery) {
-                return icons.slice(0, 200); // Show first 200 by default
+            let filtered = icons;
+            if (this.iconSearchQuery) {
+                const query = this.iconSearchQuery.toLowerCase();
+                filtered = icons.filter(icon => icon.name.toLowerCase().includes(query));
             }
-            const query = this.iconSearchQuery.toLowerCase();
-            return icons.filter(icon => icon.name.toLowerCase().includes(query)).slice(0, 200);
+            
+            // If currently editing a button with an icon, place it at the beginning
+            let result = [];
+            if (this.editingButton !== null && this.config.buttons[this.editingButton].icon) {
+                const selectedIcon = this.config.buttons[this.editingButton].icon;
+                const selectedIconObj = icons.find(icon => (icon.text || icon.class) === selectedIcon);
+                if (selectedIconObj) {
+                    result.push(selectedIconObj);
+                }
+                // Add filtered icons excluding the selected one
+                result.push(...filtered.filter(icon => (icon.text || icon.class) !== selectedIcon));
+            } else {
+                result = filtered;
+            }
+            
+            return result.slice(0, 200);
         },
         gridStyle() {
             return {
@@ -271,6 +340,10 @@ createApp({
             return modes[effectiveMode];
         },
         filteredSounds() {
+            // In 'all' view with no search query, sort alphabetically without prioritizing recent
+            if (this.activeView === 'all' && !this.searchQuery) {
+                return [...this.allSounds].sort((a, b) => a.localeCompare(b));
+            }
             return this.filterAndPrioritize(this.searchQuery, this.allSounds);
         },
         filteredEditSounds() {
@@ -553,9 +626,15 @@ createApp({
                 const config = await rpcCall('get_user_config', { user_name: this.username });
                 if (config) {
                     this.config = config;
-                    // Ensure available_colors exists for backwards compatibility
-                    if (!this.config.available_colors) {
-                        this.config.available_colors = ['primary', 'secondary', 'success', 'danger', 'warning', 'info', 'dark'];
+                    // Set default for queue_list_as_overlay if not present
+                    if (this.config.queue_list_as_overlay === undefined) {
+                        this.config.queue_list_as_overlay = true;
+                    }
+                    // Remove predefined colors from custom_colors if they were migrated
+                    if (this.config.custom_colors) {
+                        this.config.custom_colors = this.config.custom_colors.filter(c => 
+                            !PREDEFINED_COLORS.some(p => p.name === c.name)
+                        );
                     }
                 } else {
                     // Use default config
@@ -564,7 +643,8 @@ createApp({
                         grid_size: { cols: 6, rows: 4 },
                         recent_sounds: [],
                         favorites: [],
-                        available_colors: ['primary', 'secondary', 'success', 'danger', 'warning', 'info', 'dark'],
+                        custom_colors: [],
+                        queue_list_as_overlay: true,
                         version: "1.0",
                         created_at: new Date().toISOString(),
                         updated_at: new Date().toISOString()
@@ -604,6 +684,15 @@ createApp({
             this.loadUserConfig();
         },
         
+        saveQueueDisplayMode() {
+            this.saveConfig();
+        },
+        
+        toggleQueue() {
+            this.showQueue = !this.showQueue;
+            localStorage.setItem('showQueue', this.showQueue);
+        },
+        
         async registerUser() {
             if (!this.username) return;
             
@@ -640,7 +729,16 @@ createApp({
             }
         },
         
-        async playSound(query, event = null) {
+        prepareAudioFilters(audioFilters) {
+            // Merge with defaults and create a deep copy
+            const merged = {
+                ...JSON.parse(JSON.stringify(DEFAULT_AUDIO_FILTERS)),
+                ...JSON.parse(JSON.stringify(audioFilters || {}))
+            };
+            return merged;
+        },
+        
+        async playSound(query, event = null, audio_filters = null) {
             if (!this.username) {
                 alert('Please enter a username first');
                 return;
@@ -650,7 +748,8 @@ createApp({
                 const params = {
                     channelid: DISCORD_VOICE_CHANNEL_ID,
                     user_name: this.username,
-                    query: query
+                    query: query,
+                    audio_filters: this.prepareAudioFilters(audio_filters)
                 };
                 
                 // Determine play mode based on modifier keys or current playMode
@@ -770,6 +869,23 @@ createApp({
             }
         },
         
+        async skipCurrent() {
+            if (!this.username) {
+                alert('Please enter a username first');
+                return;
+            }
+            try {
+                await rpcCall('skip', {
+                    channelid: DISCORD_VOICE_CHANNEL_ID,
+                    user_name: this.username
+                });
+                this.refreshQueue();
+            } catch (error) {
+                console.error('Failed to skip:', error);
+                alert('Failed to skip: ' + error.message);
+            }
+        },
+        
         async refreshQueue() {
             try {
                 this.queueStatus = await rpcCall('queue_status', {
@@ -825,11 +941,17 @@ createApp({
                 label: 'New Button',
                 sound: '',
                 color: 'primary',
-                icon: ''
+                icon: '',
+                audio_filters: {}
             };
             this.config.buttons.push(newButton);
+            // Merge with defaults so UI always has all filter fields
+            this.config.buttons[this.config.buttons.length - 1].audio_filters = {
+                ...JSON.parse(JSON.stringify(DEFAULT_AUDIO_FILTERS)),
+                ...this.config.buttons[this.config.buttons.length - 1].audio_filters
+            };
             // Store backup of the new button
-            this.editingButtonBackup = JSON.parse(JSON.stringify(newButton));
+            this.editingButtonBackup = JSON.parse(JSON.stringify(this.config.buttons[this.config.buttons.length - 1]));
             this.isNewButton = true;
             // Open editor for the newly added button
             this.editingButton = this.config.buttons.length - 1;
@@ -860,6 +982,20 @@ createApp({
             // Ensure the button has an icon field for backwards compatibility
             if (!this.config.buttons[index].hasOwnProperty('icon')) {
                 this.config.buttons[index].icon = '';
+            }
+            // Merge with defaults so UI always has all filter fields
+            if (!this.config.buttons[index].hasOwnProperty('audio_filters')) {
+                this.config.buttons[index].audio_filters = {};
+            }
+            // Merge with defaults (defaults take precedence for missing keys)
+            this.config.buttons[index].audio_filters = {
+                ...JSON.parse(JSON.stringify(DEFAULT_AUDIO_FILTERS)),
+                ...this.config.buttons[index].audio_filters
+            };
+            // Migrate old volume_boost if present
+            if (this.config.buttons[index].hasOwnProperty('volume_boost') && 
+                !this.config.buttons[index].audio_filters.hasOwnProperty('volume_boost')) {
+                this.config.buttons[index].audio_filters.volume_boost = this.config.buttons[index].volume_boost;
             }
             this.editingButtonBackup = JSON.parse(JSON.stringify(this.config.buttons[index]));
             this.isNewButton = false;
@@ -973,12 +1109,102 @@ createApp({
             });
         },
         
+        cleanAudioFilters(button) {
+            // Remove default values from audio_filters, keeping only non-default values
+            if (!button.audio_filters) return;
+            
+            const cleanedFilters = {};
+            let hasNonDefault = false;
+            
+            for (const [key, value] of Object.entries(button.audio_filters)) {
+                const defaultValue = DEFAULT_AUDIO_FILTERS[key];
+                
+                // Keep the value if it differs from default
+                if (JSON.stringify(value) !== JSON.stringify(defaultValue)) {
+                    cleanedFilters[key] = value;
+                    hasNonDefault = true;
+                }
+            }
+            
+            // Only keep audio_filters if there are non-default values
+            if (hasNonDefault) {
+                button.audio_filters = cleanedFilters;
+            } else {
+                delete button.audio_filters;
+            }
+        },
+        
         saveButtonEdit() {
+            // Clean audio_filters before saving
+            if (this.editingButton !== null) {
+                this.cleanAudioFilters(this.config.buttons[this.editingButton]);
+            }
+            
             this.cleanupModalFocusTrap();
             this.editingButtonBackup = null;
             this.isNewButton = false;
             this.editingButton = null;
             this.saveConfig();
+        },
+        
+        saveButtonEditAsCopy() {
+            if (this.editingButton === null) return;
+            
+            const currentButton = this.config.buttons[this.editingButton];
+            const originalLabel = this.editingButtonBackup.label;
+            const newLabel = currentButton.label;
+            
+            // Check if the label is new (different from original)
+            if (newLabel === originalLabel) {
+                alert('Please change the label to create a copy');
+                return;
+            }
+            
+            // Check if the new label already exists
+            const labelExists = this.config.buttons.some((btn, idx) => 
+                idx !== this.editingButton && btn.label === newLabel
+            );
+            
+            if (labelExists) {
+                alert('A button with this label already exists');
+                return;
+            }
+            
+            // Create a copy by adding the current button as a new button
+            const buttonCopy = JSON.parse(JSON.stringify(currentButton));
+            // Clean audio_filters before adding the copy
+            this.cleanAudioFilters(buttonCopy);
+            this.config.buttons.push(buttonCopy);
+            
+            // Close the edit dialog
+            this.cleanupModalFocusTrap();
+            this.editingButtonBackup = null;
+            this.isNewButton = false;
+            this.editingButton = null;
+            this.saveConfig();
+        },
+        
+        testCurrentSound(instant = false) {
+            if (this.editingButton === null) return;
+            
+            // Ensure we're reading the absolute latest values from the config
+            this.$nextTick(() => {
+                const button = this.config.buttons[this.editingButton];
+                if (!button.sound) {
+                    alert('Please select a sound first');
+                    return;
+                }
+                
+                // Create a mock event with instant mode if requested
+                const event = instant ? { ctrlKey: true } : null;
+                
+                // Play the sound with current settings
+                this.playSound(
+                    button.sound, 
+                    event,
+                    button.audio_filters
+                );
+            });
         },
         
         cancelButtonEdit() {
@@ -1079,21 +1305,87 @@ createApp({
             }
         },
         
+        getColorClassName(color) {
+            if (typeof color === 'string') return color;
+            return color.name || color;
+        },
+        
         addColor() {
-            if (!this.config.available_colors) {
-                this.config.available_colors = [];
+            if (!this.config.custom_colors) {
+                this.config.custom_colors = [];
             }
-            this.config.available_colors.push('primary');
+            // Generate unique name
+            let colorName = 'custom';
+            let counter = 1;
+            while (this.buttonColors.some(c => c.name === colorName)) {
+                colorName = `custom${counter++}`;
+            }
+            this.config.custom_colors.push({ name: colorName, rgb: '#000000' });
             this.saveConfig();
         },
         
         removeColor(index) {
-            if (this.config.available_colors.length <= 1) {
-                alert('You must have at least one color available');
-                return;
+            if (!this.config.custom_colors) return;
+            
+            const customStartIndex = PREDEFINED_COLORS.length;
+            const customIndex = index - customStartIndex;
+            
+            if (customIndex >= 0 && customIndex < this.config.custom_colors.length) {
+                this.config.custom_colors.splice(customIndex, 1);
+                this.saveConfig();
             }
-            this.config.available_colors.splice(index, 1);
-            this.saveConfig();
+        },
+        isPredefinedColor(colorName) {
+            return PREDEFINED_COLORS.some(c => c.name === colorName);
+        },
+        getColorStyle(colorName) {
+            // Find the color object with custom RGB
+            const colorObj = this.buttonColors.find(c => c.name === colorName);
+            if (colorObj?.rgb) {
+                return {
+                    backgroundColor: colorObj.rgb,
+                    color: this.getTextColor(colorObj.rgb),
+                    border: 'none'
+                };
+            }
+            return {};
+        },
+        getTextColor(rgbString) {
+            // Parse RGB/HEX string and calculate relative luminance for WCAG contrast
+            let r, g, b;
+            
+            if (rgbString.startsWith('#')) {
+                const hex = rgbString.replace('#', '');
+                r = parseInt(hex.substring(0, 2), 16);
+                g = parseInt(hex.substring(2, 4), 16);
+                b = parseInt(hex.substring(4, 6), 16);
+            } else if (rgbString.startsWith('rgb')) {
+                const match = rgbString.match(/\d+/g);
+                if (!match || match.length < 3) return '#fff';
+                [r, g, b] = match.slice(0, 3).map(Number);
+            } else {
+                return '#fff';
+            }
+            
+            // WCAG relative luminance calculation
+            const luminance = this.getRelativeLuminance(r, g, b);
+            
+            // Use white if background is dark (luminance < 0.4), black if light
+            return luminance < 0.4 ? '#fff' : '#000';
+        },
+        getRelativeLuminance(r, g, b) {
+            // Normalize to 0-1
+            r = r / 255;
+            g = g / 255;
+            b = b / 255;
+            
+            // Apply gamma correction
+            r = r <= 0.03928 ? r / 12.92 : Math.pow((r + 0.055) / 1.055, 2.4);
+            g = g <= 0.03928 ? g / 12.92 : Math.pow((g + 0.055) / 1.055, 2.4);
+            b = b <= 0.03928 ? b / 12.92 : Math.pow((b + 0.055) / 1.055, 2.4);
+            
+            // Calculate luminance
+            return 0.2126 * r + 0.7152 * g + 0.0722 * b;
         },
         
         initSortable() {
@@ -1137,12 +1429,28 @@ createApp({
                     this.refreshQueue();
                 }
             }, 5000);
+            
+            // Send ping every 5 seconds to measure latency
+            this.pingInterval = setInterval(() => {
+                if (websocket && websocket.readyState === WebSocket.OPEN) {
+                    window.lastPingTimestamp = Date.now();
+                    websocket.send(JSON.stringify({
+                        type: 'ping',
+                        timestamp: window.lastPingTimestamp
+                    }));
+                }
+            }, 5000);
         },
         
         stopQueuePolling() {
             if (this.queueRefreshInterval) {
                 clearInterval(this.queueRefreshInterval);
                 this.queueRefreshInterval = null;
+            }
+            
+            if (this.pingInterval) {
+                clearInterval(this.pingInterval);
+                this.pingInterval = null;
             }
             
             // Close WebSocket
@@ -1200,6 +1508,11 @@ createApp({
             async (user_name) => {
                 // Only fetch and update if the config is for the current user
                 if (this.username && user_name === this.username) {
+                    // Don't reload config if we're currently editing a button
+                    if (this.editingButton !== null) {
+                        console.log('[Config] Update notification received but ignoring because button is being edited');
+                        return;
+                    }
                     console.log('[Config] Update notification for current user, fetching config...');
                     try {
                         const config = await rpcCall('get_user_config', { user_name: this.username });
@@ -1292,7 +1605,7 @@ createApp({
             // Q for queue
             if (e.key === 'q' && !e.ctrlKey && !e.metaKey && !e.altKey) {
                 e.preventDefault();
-                this.showQueue = !this.showQueue;
+                this.toggleQueue();
             }
             
             // U for users
@@ -1305,6 +1618,12 @@ createApp({
             if (e.key === 'f' && !e.ctrlKey && !e.metaKey && !e.altKey) {
                 e.preventDefault();
                 this.toggleFullscreen();
+            }
+            
+            // M for toggle play mode
+            if (e.key === 'm' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+                e.preventDefault();
+                this.togglePlayMode();
             }
             
             // 1, 2, 3 for view switching
@@ -1332,7 +1651,7 @@ createApp({
                 } else if (this.showSettings) {
                     this.showSettings = false;
                 } else if (this.showQueue) {
-                    this.showQueue = false;
+                    this.toggleQueue();
                 }
             }
         });

@@ -27,7 +27,7 @@ import user_config
 
 _log = logging.getLogger(__name__)
 
-# WebSocket connections registry - maps WebSocket to user info dict {"username": str, "ip": str, "hostname": str}
+# WebSocket connections registry - maps WebSocket to user info dict {"username": str, "ip": str, "hostname": str, "last_ping": float}
 websocket_connections: Dict = {}
 
 # File watcher
@@ -278,7 +278,7 @@ async def jsonrpc_search(context, query) -> Result:
 
 
 @method(name="play")
-async def jsonrpc_play(context, channelid, query, interrupt=False, play_next=False, user_name="RPC") -> Result:
+async def jsonrpc_play(context, channelid, query, interrupt=False, play_next=False, user_name="RPC", audio_filters=None) -> Result:
     """Play a sound via JSON-RPC.
     
     Args:
@@ -287,11 +287,16 @@ async def jsonrpc_play(context, channelid, query, interrupt=False, play_next=Fal
         interrupt: If True, interrupt current playback (default: False)
         play_next: If True, play after current sound (default: False, adds to end of queue)
         user_name: Display name for logging (default: "RPC")
+        audio_filters: Dict containing volume_boost and audio filter settings (default: None)
     """
     start_time = time.time()
     
+    # Extract volume_boost from audio_filters for logging
+    audio_filters = audio_filters or {}
+    volume_boost = audio_filters.get('volume_boost', 1.0)
+    
     try:
-        _log.debug(f"[RPC] play request started - user: {user_name}, query: {query}, interrupt: {interrupt}, play_next: {play_next}")
+        _log.debug(f"[RPC] play request started - user: {user_name}, query: {query}, interrupt: {interrupt}, play_next: {play_next}, volume: {volume_boost}x")
         
         bot = context["app"]["bot"]
 
@@ -325,6 +330,7 @@ async def jsonrpc_play(context, channelid, query, interrupt=False, play_next=Fal
             voice_client = vc
 
         queue_start = time.time()
+        
         await audio_player.queue_sound(
             RpcContext(), 
             query, 
@@ -332,7 +338,9 @@ async def jsonrpc_play(context, channelid, query, interrupt=False, play_next=Fal
             after=None,
             interrupt=interrupt,
             play_next=play_next,
-            user_name=user_name
+            user_name=user_name,
+            volume_boost=volume_boost,
+            audio_filters=audio_filters
         )
         queue_time = (time.time() - queue_start) * 1000
         _log.debug(f"[RPC] Sound queued in {queue_time:.2f}ms")
@@ -395,6 +403,84 @@ async def jsonrpc_stop(context, channelid, user_name="RPC") -> Result:
         return Success(f"Cleared {result['queue_cleared']} queued items")
     else:
         return Success("No playback to stop")
+
+
+@method(name="stop")
+async def jsonrpc_stop(context, channelid, user_name="RPC") -> Result:
+    """Stop playback and clear queue via JSON-RPC.
+    
+    Args:
+        channelid: Voice channel ID to stop playback in
+        user_name: Display name for logging (default: "RPC")
+    """
+    bot = context["app"]["bot"]
+
+    channel = bot.get_channel(int(channelid))
+    if not channel:
+        return InvalidParams("Channel not found")
+
+    guild = channel.guild
+    
+    audio_player = bot.get_cog("AudioPlayer")
+    if not audio_player:
+        return Error(1, "Audio player cog not found")
+
+    if not guild.voice_client:
+        return Success("Not connected to voice")
+    
+    result = audio_player.stop_playback(guild.voice_client, user_name=user_name)
+    
+    # Broadcast queue update to WebSocket clients
+    await broadcast_queue_update(bot, channelid)
+    
+    if result['stopped'] and result['queue_cleared'] > 0:
+        return Success(f"Playback stopped and cleared {result['queue_cleared']} queued items")
+    elif result['stopped']:
+        return Success("Playback stopped")
+    elif result['queue_cleared'] > 0:
+        return Success(f"Cleared {result['queue_cleared']} queued items")
+    else:
+        return Success("No playback to stop")
+
+
+@method(name="skip")
+async def jsonrpc_skip(context, channelid, user_name="RPC") -> Result:
+    """Skip current sound for the user and play the next one via JSON-RPC.
+    
+    Args:
+        channelid: Voice channel ID to skip on
+        user_name: Display name for logging (default: "RPC")
+    """
+    bot = context["app"]["bot"]
+
+    channel = bot.get_channel(int(channelid))
+    if not channel:
+        return InvalidParams("Channel not found")
+
+    guild = channel.guild
+    
+    audio_player = bot.get_cog("AudioPlayer")
+    if not audio_player:
+        return Error(1, "Audio player cog not found")
+
+    if not guild.voice_client:
+        return Success("Not connected to voice")
+    
+    # Generate user_id from user_name hash for per-user queuing
+    user_id = hash(user_name) & 0x7FFFFFFF  # Positive 32-bit integer
+    
+    result = audio_player.skip_current(guild.voice_client, user_id=user_id, user_name=user_name)
+    
+    # Broadcast queue update to WebSocket clients
+    await broadcast_queue_update(bot, channelid)
+    
+    if result['skipped']:
+        if result['playing_next']:
+            return Success("Skipped current sound, playing next")
+        else:
+            return Success("Skipped current sound")
+    else:
+        return Success("Nothing playing to skip")
 
 
 @method(name="queue_status")
@@ -589,6 +675,22 @@ async def jsonrpc_message(context, channelid, content) -> Result:
     return Success("Message sent successfully")
 
 
+@method(name="update_ping")
+async def jsonrpc_update_ping(context, ping_ms: int) -> Result:
+    """Update the ping/latency for the current WebSocket connection.
+    
+    Args:
+        ping_ms: Round-trip latency in milliseconds
+        
+    Returns:
+        Success result
+    """
+    ws = context.get("ws")
+    if ws and ws in websocket_connections:
+        websocket_connections[ws]["ping_ms"] = max(0, int(ping_ms))
+    return Success("Ping updated")
+
+
 @method(name="register_user")
 async def jsonrpc_register_user(context, user_name: str, channelid: str = "1033659964457230392") -> Result:
     """Register the username for the current WebSocket connection.
@@ -631,7 +733,15 @@ async def handle_websocket(request):
     # Get hostname via reverse DNS lookup
     hostname = await asyncio.get_event_loop().run_in_executor(None, get_hostname_from_ip, real_ip)
     
-    websocket_connections[ws] = {"username": "Anonymous", "ip": real_ip, "hostname": hostname}
+    current_time = time.time()
+    websocket_connections[ws] = {
+        "username": "Anonymous",
+        "ip": real_ip,
+        "hostname": hostname,
+        "connected_at": current_time,
+        "last_ping": current_time,
+        "ping_ms": 0
+    }
     _log.info(f"WebSocket client connected from {real_ip} ({hostname}). Total connections: {len(websocket_connections)}")
     
     bot = request.app["bot"]
@@ -641,6 +751,13 @@ async def handle_websocket(request):
             if msg.type == aiohttp.WSMsgType.TEXT:
                 try:
                     data = json.loads(msg.data)
+                    
+                    # Handle ping/pong for latency measurement
+                    if data.get("type") == "ping":
+                        # Just echo back pong - client will calculate RTT
+                        websocket_connections[ws]["last_ping"] = time.time()
+                        await ws.send_json({"type": "pong"})
+                        continue
                     
                     # Handle JSON-RPC over WebSocket
                     if "method" in data:

@@ -53,23 +53,44 @@ def get_sounds() -> Iterator[str]:
 
 
 class QueueItem:
-    def __init__(self, query: str, user_id: int, user_name: str = "System", after: Optional[Callable[[], None]] = None):
+    def __init__(self, query: str, user_id: int, user_name: str = "System", after: Optional[Callable[[], None]] = None, volume_boost: float = 1.0, audio_filters: Optional[Dict] = None):
         self.query = query
         self.user_id = user_id
         self.user_name = user_name
         self.after = after
+        # Handle backward compatibility: volume_boost can be in audio_filters or as separate param
+        self.audio_filters = audio_filters or {}
+        if 'volume_boost' in self.audio_filters:
+            self.volume_boost = self.audio_filters['volume_boost']
+        else:
+            self.volume_boost = volume_boost
+            self.audio_filters['volume_boost'] = volume_boost
 
 
 class UserAudioStream:
     """Represents an audio stream for a single user"""
-    def __init__(self, filepath: str, user_id: int, user_name: str):
+    def __init__(self, filepath: str, user_id: int, user_name: str, volume_boost: float = 1.0, audio_filters: Optional[Dict] = None):
         self.filepath = filepath
         self.user_id = user_id
         self.user_name = user_name
+        # Handle backward compatibility: volume_boost can be in audio_filters or as separate param
+        self.audio_filters = audio_filters or {}
+        if 'volume_boost' in self.audio_filters:
+            volume_boost = self.audio_filters['volume_boost']
+        self.volume_boost = max(0.0, min(3.0, volume_boost))  # Clamp between 0 and 3
+        self.audio_filters['volume_boost'] = self.volume_boost
         self.process: Optional[subprocess.Popen] = None
         self.finished = False
         self.after_callback: Optional[Callable[[], None]] = None
-        self.duration: Optional[float] = get_audio_duration(filepath)
+        base_duration = get_audio_duration(filepath)
+        
+        # Adjust duration if timestretch is applied
+        if base_duration and self.audio_filters.get('rubberband_tempo', 1.0) != 1.0:
+            tempo = self.audio_filters.get('rubberband_tempo', 1.0)
+            self.duration = base_duration / tempo  # Slower tempo = longer duration
+        else:
+            self.duration = base_duration
+            
         self.current_time_us: int = 0  # Current playback position in microseconds
         self.progress_thread: Optional[threading.Thread] = None
         self.progress_stop_event = threading.Event()
@@ -86,13 +107,97 @@ class UserAudioStream:
             '-i', str(self.filepath),
             '-progress', f'pipe:{progress_w}',  # Progress output to the write end of our pipe
             '-stats_period', '0.1',  # Update progress every 100ms
+        ]
+        
+        # Build audio filter chain
+        filters = []
+        
+        # Compressor filter (upward mode to boost quiet signals aggressively)
+        if self.audio_filters.get('compressor'):
+            # mode=upward: expand quiet signals instead of compressing loud ones
+            # ratio=2: aggressive expansion (doubles the volume increase)
+            # makeup=2: amplify signal by 2x after processing
+            # Keeps other settings at defaults for smooth operation
+            filters.append('acompressor=mode=upward:ratio=2:makeup=2')
+        
+        # Bass boost (low shelf filter at 100Hz)
+        bass_boost = self.audio_filters.get('bass_boost', 0)
+        if bass_boost != 0:
+            filters.append(f'bass=g={bass_boost}:f=100')
+        
+        # Treble boost (high shelf filter at 3000Hz)
+        treble_boost = self.audio_filters.get('treble_boost', 0)
+        if treble_boost != 0:
+            filters.append(f'treble=g={treble_boost}:f=3000')
+        
+        # High-pass filter (remove frequencies below threshold)
+        highpass = self.audio_filters.get('highpass', 0)
+        if highpass > 0:
+            filters.append(f'highpass=f={highpass}')
+        
+        # Low-pass filter (remove frequencies above threshold)
+        lowpass = self.audio_filters.get('lowpass', 0)
+        if lowpass > 0:
+            filters.append(f'lowpass=f={lowpass}')
+        
+        # Chorus effect
+        if self.audio_filters.get('chorus'):
+            filters.append('chorus=0.5:0.9:50|60|40:0.4|0.32|0.3:0.25|0.4|0.3:2|2.3|1.3')
+        
+        # Earwax effect (makes audio sound like it's coming through ear wax)
+        if self.audio_filters.get('earwax'):
+            filters.append('earwax')
+        
+        # Rubberband time stretching (pitch shift)
+        rubberband_pitch = self.audio_filters.get('rubberband_pitch', 0)
+        if rubberband_pitch != 0:
+            # Convert semitones to ratio (each semitone is 2^(1/12))
+            ratio = 2 ** (rubberband_pitch / 12.0)
+            filters.append(f'rubberband=pitch={ratio}')
+        
+        # Rubberband time stretch (tempo change without pitch change)
+        rubberband_tempo = self.audio_filters.get('rubberband_tempo', 1.0)
+        if rubberband_tempo != 1.0:
+            filters.append(f'rubberband=tempo={rubberband_tempo}')
+        
+        # Silence removal
+        if self.audio_filters.get('silence_remove'):
+            filters.append('silenceremove=start_periods=1:start_duration=0.1:start_threshold=-50dB:stop_periods=-1:stop_duration=0.5:stop_threshold=-50dB')
+        
+        # Tremolo effect (amplitude modulation)
+        tremolo_freq = self.audio_filters.get('tremolo_freq', 0)
+        if tremolo_freq > 0:
+            tremolo_depth = self.audio_filters.get('tremolo_depth', 0.5)
+            filters.append(f'tremolo=f={tremolo_freq}:d={tremolo_depth}')
+        
+        # Vibrato effect (frequency modulation)
+        vibrato_freq = self.audio_filters.get('vibrato_freq', 0)
+        if vibrato_freq > 0:
+            vibrato_depth = self.audio_filters.get('vibrato_depth', 0.5)
+            filters.append(f'vibrato=f={vibrato_freq}:d={vibrato_depth}')
+        
+        # Super equalizer (10-band)
+        supereq_bands = self.audio_filters.get('supereq_bands')
+        if supereq_bands and any(v != 0 for v in supereq_bands):
+            # Bands: 65, 130, 260, 520, 1k, 2k, 4k, 8k, 16k Hz
+            filters.append(f'superequalizer=1b={supereq_bands[0]}:2b={supereq_bands[1]}:3b={supereq_bands[2]}:4b={supereq_bands[3]}:5b={supereq_bands[4]}:6b={supereq_bands[5]}:7b={supereq_bands[6]}:8b={supereq_bands[7]}:9b={supereq_bands[8]}')
+        
+        # Volume filter (always apply if not 1.0)
+        if self.volume_boost != 1.0:
+            filters.append(f'volume={self.volume_boost}')
+        
+        # Apply filter chain if any filters were added
+        if filters:
+            args.extend(['-af', ','.join(filters)])
+        
+        args.extend([
             '-f', 's16le',
             '-ar', '48000',
             '-ac', '2',
             '-bufsize', '64k',  # Smaller buffer for lower latency
             '-loglevel', 'warning',
             'pipe:1'
-        ]
+        ])
         try:
             self.process = subprocess.Popen(
                 args,
@@ -213,7 +318,7 @@ class MixedAudioSource(discord.AudioSource):
         self.stream_changed_callback = stream_changed_callback
         self.event_loop = event_loop
         
-    def add_stream(self, user_id: int, filepath: str, user_name: str, after: Optional[Callable[[], None]] = None):
+    def add_stream(self, user_id: int, filepath: str, user_name: str, after: Optional[Callable[[], None]] = None, volume_boost: float = 1.0, audio_filters: Optional[Dict] = None):
         """Add or replace a user's audio stream"""
         with self.lock:
             # Clean up existing stream for this user
@@ -223,12 +328,12 @@ class MixedAudioSource(discord.AudioSource):
                 _log.info(f"Replaced stream for {user_name} (ID: {user_id})")
             
             # Create and start new stream
-            stream = UserAudioStream(filepath, user_id, user_name)
+            stream = UserAudioStream(filepath, user_id, user_name, volume_boost, audio_filters)
             stream.after_callback = after
             stream.start()
             # Assignment triggers ObservableDict callback
             self.streams[user_id] = stream
-            _log.info(f"Added stream for {user_name} (ID: {user_id}): {filepath}")
+            _log.info(f"Added stream for {user_name} (ID: {user_id}): {filepath} (volume: {volume_boost}x)")
     
     def read(self) -> bytes:
         """Read and mix audio from all active streams"""
@@ -315,6 +420,23 @@ class MixedAudioSource(discord.AudioSource):
                 stream.cleanup()
             self.streams.clear()
             self._finished = True
+    
+    def stop_stream(self, user_id: int):
+        """Stop a specific user's audio stream"""
+        with self.lock:
+            if user_id in self.streams:
+                stream = self.streams[user_id]
+                stream.finished = True
+                stream.cleanup()
+                del self.streams[user_id]
+                _log.info(f"Stopped stream for {stream.user_name} (ID: {user_id})")
+                # Signal that a stream finished
+                if self.stream_finished_event:
+                    try:
+                        if self.event_loop:
+                            self.event_loop.call_soon_threadsafe(self.stream_finished_event.set)
+                    except Exception:
+                        pass
     
     def is_opus(self) -> bool:
         return False
@@ -411,7 +533,7 @@ class AudioPlayer(commands.Cog):
             await interaction.followup.send(content=str(e), ephemeral=True)
             raise
 
-    async def queue_sound(self, ctx, query: str, user_id: int, after: Optional[Callable[[], None]] = None, interrupt: bool = False, play_next: bool = False, user_name: str = "System"):
+    async def queue_sound(self, ctx, query: str, user_id: int, after: Optional[Callable[[], None]] = None, interrupt: bool = False, play_next: bool = False, user_name: str = "System", volume_boost: float = 1.0, audio_filters: Optional[Dict] = None):
         """Queue a sound to play in the user's personal queue.
         
         Args:
@@ -422,6 +544,8 @@ class AudioPlayer(commands.Cog):
             interrupt: If True, stop this user's current stream and play immediately.
             play_next: If True, insert at front of user's queue. If False, append to end.
             user_name: Display name of user requesting playback
+            volume_boost: Volume multiplier (0.0 to 3.0, default 1.0)
+            audio_filters: Dictionary of audio filter settings
         """
         if not ctx.voice_client:
             raise commands.CommandError("Bot is not connected to a voice channel.")
@@ -435,7 +559,7 @@ class AudioPlayer(commands.Cog):
         if not filename.is_file():
             raise commands.CommandError("Audio file not found.")
 
-        item = QueueItem(query, user_id, user_name, after)
+        item = QueueItem(query, user_id, user_name, after, volume_boost, audio_filters)
         
         # Check if voice client changed (reconnection) - need to restart playback
         if self.current_voice_client is not None and self.current_voice_client != ctx.voice_client:
@@ -454,11 +578,8 @@ class AudioPlayer(commands.Cog):
             # If interrupt, stop this user's current stream immediately
             if interrupt:
                 # Stop the user's current stream in the mixer (if any)
-                if self.mixed_source and user_id in self.mixed_source.streams:
-                    stream = self.mixed_source.streams[user_id]
-                    stream.cleanup()
-                    del self.mixed_source.streams[user_id]
-                    _log.info(f"{user_name} (ID: {user_id}) interrupted their own stream")
+                self._stop_user_stream(user_id, user_name)
+                _log.info(f"{user_name} (ID: {user_id}) interrupted their own stream")
                 # Add to front of queue to play immediately
                 self.user_queues[user_id].appendleft(item)
                 _log.info(f"{user_name} (ID: {user_id}) queued '{query}' for instant playback")
@@ -528,7 +649,9 @@ class AudioPlayer(commands.Cog):
                             user_id,
                             str(filename),
                             item.user_name,
-                            item.after
+                            item.after,
+                            item.volume_boost,
+                            item.audio_filters
                         )
                         _log.info(f"Started playing '{item.query}' for {item.user_name}")
 
@@ -610,7 +733,9 @@ class AudioPlayer(commands.Cog):
                                 user_id, 
                                 str(filename), 
                                 item.user_name,
-                                item.after
+                                item.after,
+                                item.volume_boost,
+                                item.audio_filters
                             )
                             _log.info(f"Started playing '{item.query}' for {item.user_name} (user queue remaining: {len(queue)})")
                         else:
@@ -790,6 +915,59 @@ class AudioPlayer(commands.Cog):
         return {
             'stopped': was_playing,
             'queue_cleared': queue_size
+        }
+
+    def _stop_user_stream(self, user_id: int, user_name: str = "") -> bool:
+        """Stop a specific user's current stream in the mixer.
+        
+        Args:
+            user_id: The user ID whose stream to stop
+            user_name: Name for logging (optional)
+            
+        Returns:
+            True if a stream was stopped, False if no active stream
+        """
+        if not self.mixed_source or user_id not in self.mixed_source.streams:
+            return False
+        
+        stream = self.mixed_source.streams[user_id]
+        stream.cleanup()
+        del self.mixed_source.streams[user_id]
+        if user_name:
+            _log.info(f"{user_name} (ID: {user_id}) stream stopped")
+        return True
+    
+    def skip_current(self, voice_client, user_id: int, user_name: str = "System") -> dict:
+        """Skip the currently playing sound for a specific user and move to the next one.
+        Similar to interrupt mode, but just advances the queue instead of playing new sound.
+        
+        Args:
+            voice_client: The voice client to skip on
+            user_id: The user ID whose stream to skip
+            user_name: Name of user requesting skip (for logging)
+            
+        Returns:
+            dict with 'skipped' (bool), 'playing_next' (bool) keys
+        """
+        _log.info(f"{user_name} skipped current sound (user_id: {user_id})")
+        
+        # Stop only this user's stream in the mixer
+        was_stopped = self._stop_user_stream(user_id, user_name)
+        
+        if was_stopped:
+            # Signal the event to wake up the processing loop so it can play the next sound
+            if self.stream_finished_event:
+                self.stream_finished_event.set()
+            
+            return {
+                'skipped': True,
+                'playing_next': len(self.user_queues.get(user_id, [])) > 0
+            }
+        
+        _log.info(f"{user_name} attempted to skip but no active stream for user {user_id}")
+        return {
+            'skipped': False,
+            'playing_next': False
         }
 
     @commands.command()

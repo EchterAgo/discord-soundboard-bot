@@ -16,7 +16,7 @@
     },
     {
       "id": 12,
-      "label": "Leben bedroht",
+      "label": "Leben bedroht slow",
       "sound": "ago/lebenbedroht.mp3",
       "color": "danger",
       "icon": "bi bi-exclamation-triangle-fill"
@@ -68,7 +68,10 @@
       "label": "Nicht so tief, Rüdiger",
       "sound": "ago/nichtsotiefruediger.mp3",
       "color": "primary",
-      "icon": "fas fa-plane"
+      "icon": "fas fa-plane",
+      "audio_filters": {
+        "compressor": true
+      }
     },
     {
       "id": 3,
@@ -89,7 +92,35 @@
       "label": "Glotzen uff",
       "sound": "ago/glotzenuff.mp3",
       "color": "info",
-      "icon": "bi bi-eye-fill"
+      "icon": "bi bi-eye-fill",
+      "audio_filters": {
+        "volume_boost": 1,
+        "compressor": false,
+        "bass_boost": 0,
+        "treble_boost": 0,
+        "highpass": 0,
+        "lowpass": 0,
+        "chorus": false,
+        "earwax": false,
+        "rubberband_pitch": 0,
+        "rubberband_tempo": 1,
+        "silence_remove": false,
+        "tremolo_freq": 0,
+        "tremolo_depth": 0,
+        "vibrato_freq": 0,
+        "vibrato_depth": 0,
+        "supereq_bands": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      }
     },
     {
       "id": 6,
@@ -145,7 +176,35 @@
       "label": "Jetzt reicht es mir",
       "sound": "ago/esreicht.mp3",
       "color": "danger",
-      "icon": "bi bi-emoji-angry-fill"
+      "icon": "bi bi-emoji-angry-fill",
+      "audio_filters": {
+        "volume_boost": 1,
+        "compressor": false,
+        "bass_boost": 0,
+        "treble_boost": 0,
+        "highpass": 0,
+        "lowpass": 0,
+        "chorus": false,
+        "earwax": false,
+        "rubberband_pitch": 0,
+        "rubberband_tempo": 1,
+        "silence_remove": false,
+        "tremolo_freq": 0,
+        "tremolo_depth": 0,
+        "vibrato_freq": 0,
+        "vibrato_depth": 0,
+        "supereq_bands": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      }
     },
     {
       "id": 18,
@@ -159,7 +218,12 @@
       "label": "Wurst 2",
       "sound": "ago/wurst2.mp3",
       "color": "primary",
-      "icon": "fas fa-hotdog"
+      "icon": "fas fa-hotdog",
+      "audio_filters": {
+        "compressor": true,
+        "bass_boost": -5,
+        "treble_boost": 8
+      }
     },
     {
       "id": 20,
@@ -264,7 +328,35 @@
       "label": "HL Step3",
       "sound": "ago/hl/npc_step3.wav",
       "color": "primary",
-      "icon": "bi bi-boot"
+      "icon": "bi bi-boot",
+      "audio_filters": {
+        "volume_boost": 1,
+        "compressor": false,
+        "bass_boost": 0,
+        "treble_boost": 0,
+        "highpass": 0,
+        "lowpass": 0,
+        "chorus": false,
+        "earwax": false,
+        "rubberband_pitch": 0,
+        "rubberband_tempo": 1,
+        "silence_remove": false,
+        "tremolo_freq": 0,
+        "tremolo_depth": 0,
+        "vibrato_freq": 0,
+        "vibrato_depth": 0,
+        "supereq_bands": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      }
     },
     {
       "id": 1765126194008,
@@ -404,7 +496,10 @@
       "label": "Mimi 12",
       "sound": "ago/mimi12.mp3",
       "color": "info",
-      "icon": "bi bi-chat-square-quote-fill"
+      "icon": "bi bi-chat-square-quote-fill",
+      "audio_filters": {
+        "compressor": true
+      }
     },
     {
       "id": 53,
@@ -425,7 +520,35 @@
       "label": "Hey baby",
       "sound": "ago/bb/heybaby.mp3",
       "color": "primary",
-      "icon": "bi bi-heart-fill"
+      "icon": "bi bi-heart-fill",
+      "audio_filters": {
+        "volume_boost": 1,
+        "compressor": false,
+        "bass_boost": 0,
+        "treble_boost": 0,
+        "highpass": 0,
+        "lowpass": 0,
+        "chorus": false,
+        "earwax": false,
+        "rubberband_pitch": 0,
+        "rubberband_tempo": 1,
+        "silence_remove": false,
+        "tremolo_freq": 0,
+        "tremolo_depth": 0,
+        "vibrato_freq": 0,
+        "vibrato_depth": 0,
+        "supereq_bands": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      }
     },
     {
       "id": 56,
@@ -468,6 +591,69 @@
       "sound": "ago/schnitzel.mp3",
       "color": "danger",
       "icon": "fas fa-drumstick-bite"
+    },
+    {
+      "id": 12,
+      "label": "Leben bedroht slow",
+      "sound": "ago/lebenbedroht.mp3",
+      "color": "danger",
+      "icon": "bi bi-exclamation-triangle-fill",
+      "audio_filters": {
+        "volume_boost": 1.9,
+        "rubberband_pitch": -11
+      }
+    },
+    {
+      "id": 1765197665883,
+      "label": "Multi Die Grünen",
+      "sound": "ago/seehofer_multi_gruenen.mp3",
+      "color": "grün",
+      "icon": "bi bi-tree-fill"
+    },
+    {
+      "id": 1765199521187,
+      "label": "Nase voll",
+      "sound": "ago/nasevoll.mp3",
+      "color": "success",
+      "icon": "bi bi-battery-full"
+    },
+    {
+      "id": 1765199566249,
+      "label": "Ich bin hier der Gott",
+      "sound": "ago/gott.opus",
+      "color": "primary",
+      "icon": "bi bi-asterisk"
+    },
+    {
+      "id": 1765200021209,
+      "label": "Mother Shreds",
+      "sound": "ago/mother.mp3",
+      "color": "success",
+      "icon": "bi bi-emoji-smile-fill"
+    },
+    {
+      "id": 1765203862628,
+      "label": "Sound of Silence Kazoo",
+      "sound": "ago/sound_of_silenze_kazoo.opus",
+      "color": "primary",
+      "icon": "bi bi-megaphone-fill",
+      "audio_filters": {
+        "compressor": true
+      }
+    },
+    {
+      "id": 1765211357621,
+      "label": "Es ist Weihnacht",
+      "sound": "ago/gerhard_mueller_weihnacht.mp3",
+      "color": "danger",
+      "icon": "bi bi-tree-fill"
+    },
+    {
+      "id": 1765212674267,
+      "label": "Pew",
+      "sound": "ago/pew.mp3",
+      "color": "primary",
+      "icon": ""
     }
   ],
   "grid_size": {
@@ -475,38 +661,36 @@
     "rows": 12
   },
   "recent_sounds": [
-    "ago/buenzli_verhaften.mp3",
-    "ago/buenzli_verboten.mp3",
-    "ago/buenzli_sofortaufhoeren2.mp3",
-    "ago/buenzli_sofortaufhoeren.mp3",
-    "ago/fressehalten.mp3",
-    "ago/sofroehlich.mp3",
-    "ago/nudelfrucht.mp3",
+    "ago/pew.mp3",
+    "ago/gerhard_mueller_weihnacht.mp3",
+    "ago/alarm.mp3",
+    "ago/ganzetagsuff.mp3",
+    "ago/mario_jump.mp3",
+    "ago/kloesse.mp3",
+    "ago/jedezelle.mp3",
+    "ago/wurst.mp3",
+    "ago/wurst2.mp3",
+    "downloads/Loriot/Loriot_-_Was_fuer_ein_Laden_ist_das_denn_hier.opus",
+    "ago/seehofer_multi_gruenen.mp3",
+    "ago/lebenbedroht.mp3",
+    "ago/bb/dumbass.mp3",
+    "ago/bb/heybaby.mp3",
     "ago/bb/tpformybunghole.mp3",
-    "ago/schnitzel.mp3",
-    "ago/seehofer_gruenen.mp3",
-    "ago/seehofer_gruenen2.mp3",
-    "ago/mimi2.mp3",
-    "ago/mimi.mp3",
-    "ago/mimi3.mp3",
-    "ago/mimi4.mp3",
-    "ago/mimi5.mp3",
-    "ago/mimi6.mp3",
-    "ago/mimi7.mp3",
+    "ago/bb/threatningme.mp3",
+    "ago/bb/money.mp3",
+    "ago/mimi12.mp3",
     "ago/mimi11.mp3",
-    "ago/mimi12.mp3"
+    "ago/mimi10.mp3"
   ],
   "favorites": [],
   "version": "1.0",
   "created_at": "2025-12-07T00:00:00.000Z",
-  "updated_at": "2025-12-08T10:47:36.650053",
-  "available_colors": [
-    "primary",
-    "secondary",
-    "success",
-    "danger",
-    "warning",
-    "info",
-    "dark"
-  ]
+  "updated_at": "2025-12-08T17:19:45.065267",
+  "custom_colors": [
+    {
+      "name": "grün",
+      "rgb": "#00ff00"
+    }
+  ],
+  "queue_list_as_overlay": true
 }
