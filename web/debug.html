@@ -452,7 +452,6 @@
                 },
 
                 updateHistograms() {
-                    console.log('[Histograms] updateHistograms called, recent count:', this.audioStats.recent?.length);
                     if (!this.audioStats.recent || this.audioStats.recent.length === 0) {
                         this.destroyCharts();
                         return;
@@ -463,8 +462,6 @@
                     const decodeLatencies = this.audioStats.recent.map(s => s.decode_latency).filter(v => v != null);
                     const queueLatencies = this.audioStats.recent.map(s => s.queue_latency).filter(v => v != null);
                     const processingLatencies = this.audioStats.recent.map(s => s.processing_latency).filter(v => v != null);
-
-                    console.log('[Histograms] Latency counts - total:', totalLatencies.length, 'decode:', decodeLatencies.length, 'queue:', queueLatencies.length, 'processing:', processingLatencies.length);
 
                     // Update or create charts
                     this.updateChart('totalLatency', totalLatencies, 'Total Latency (ms)');
@@ -477,10 +474,7 @@
                     const refKey = chartKey + 'Chart';
                     const canvas = this.$refs[refKey];
                     
-                    console.log('[Chart]', chartKey, '- canvas exists:', !!canvas, 'chart exists:', !!this.charts[chartKey], 'values:', values.length);
-                    
                     if (!canvas) {
-                        console.warn('[Chart]', chartKey, '- canvas ref not found');
                         return;
                     }
 
@@ -488,14 +482,12 @@
                     
                     if (this.charts[chartKey]) {
                         // Update existing chart - only update data, not options
-                        console.log('[Chart]', chartKey, '- updating existing chart');
                         const chart = this.charts[chartKey];
                         chart.data.labels = histogramData.labels;
                         chart.data.datasets[0].data = histogramData.datasets[0].data;
                         chart.update('none'); // Use 'none' to skip animation
                     } else {
                         // Create new chart
-                        console.log('[Chart]', chartKey, '- creating new chart');
                         this.charts[chartKey] = new Chart(canvas, {
                             type: 'bar',
                             data: histogramData,
