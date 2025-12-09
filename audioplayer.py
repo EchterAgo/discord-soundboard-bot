@@ -244,8 +244,9 @@ class UserAudioStream:
             # Close write end in parent, keep read end
             os.close(progress_w)
 
-            # Track stream start for stats
-            audio_stats.mark_stream_start(self.user_id)
+            # Track stream start for stats only if we have a request timestamp (not a queue transition)
+            if self.request_timestamp is not None:
+                audio_stats.mark_stream_start(self.user_id)
 
             # Start thread to read progress updates
             self.progress_thread = threading.Thread(target=self._read_progress, args=(progress_r,), daemon=True)
@@ -308,11 +309,11 @@ class UserAudioStream:
                 if self.after_callback:
                     self.after_callback()
             else:
-                # Track first byte latency
+                # Track first byte latency only if we're tracking this request (not a queue transition)
                 if self.first_byte_timestamp is None:
                     self.first_byte_timestamp = time.time()
-                    audio_stats.mark_first_byte(self.user_id)
                     if self.request_timestamp is not None:
+                        audio_stats.mark_first_byte(self.user_id)
                         latency_ms = (self.first_byte_timestamp - self.request_timestamp) * 1000
                         _log.info(
                             f"[LATENCY] {self.user_name}: {latency_ms:.2f}ms from button press to first byte decoded (file: {self.filepath})"
@@ -338,22 +339,26 @@ class UserAudioStream:
 
     def cleanup(self):
         """Clean up the FFmpeg process"""
-        # Track stream end for stats
-        audio_stats.mark_stream_end(self.user_id)
+        # Track stream end for stats synchronously - must happen before we return
+        if self.request_timestamp is not None:
+            audio_stats.mark_stream_end(self.user_id)
 
-        # Kill the process first to unblock the progress thread
-        if self.process:
-            try:
-                self.process.kill()
-                # Don't wait for process to fully terminate - just kill and move on
-                # The OS will clean it up
-            except Exception as e:
-                _log.debug(f"Error killing process: {e}")
-
-        # Signal progress thread to stop (it should exit quickly now that process is killed)
-        self.progress_stop_event.set()
-        # Don't wait for the thread - let it die on its own
-        # It will exit when it gets EOF from the killed process
+        # Kill the process and signal stop event asynchronously (non-blocking)
+        # This is done in a thread to avoid blocking on process termination
+        def async_cleanup():
+            if self.process:
+                try:
+                    self.process.kill()
+                    # Don't wait for process to fully terminate - just kill and move on
+                    # The OS will clean it up
+                except Exception as e:
+                    _log.debug(f"Error killing process: {e}")
+            
+            # Signal progress thread to stop
+            self.progress_stop_event.set()
+        
+        # Run cleanup in background thread
+        threading.Thread(target=async_cleanup, daemon=True).start()
 
 
 class MixedAudioSource(discord.AudioSource):
@@ -676,21 +681,16 @@ class AudioPlayer(commands.Cog):
                 if self.stream_finished_event:
                     self.stream_finished_event.set()
             else:
-                # Track request start for stats for non-interrupt case
-                if request_timestamp is None:
-                    request_timestamp = audio_stats.start_request(user_id, user_name, str(filename))
-                else:
-                    audio_stats.start_request(user_id, user_name, str(filename), request_timestamp)
-                item.request_timestamp = request_timestamp
+                # Don't track stats for queued items - only track when they actually start playing
+                # Set request_timestamp to None so queue transitions don't track stats
+                item.request_timestamp = None
 
                 # Add to user's queue
                 if play_next and len(self.user_queues[user_id]) > 0:
                     self.user_queues[user_id].appendleft(item)
-                    audio_stats.mark_queued(user_id)
                     _log.info(f"{user_name} (ID: {user_id}) queued '{query}' to play next in their queue")
                 else:
                     self.user_queues[user_id].append(item)
-                    audio_stats.mark_queued(user_id)
                     user_pos = len(self.user_queues[user_id])
                     total_queued = self._get_total_queue_size()
                     _log.info(
@@ -745,6 +745,10 @@ class AudioPlayer(commands.Cog):
                     if queue:
                         item = queue.popleft()
                         filename = CONFIG_AUDIO_BASE_DIR / PurePosixPath(item.query)
+                        # Track stats for initial playback start (this is a new user action)
+                        if item.request_timestamp is not None:
+                            audio_stats.start_request(user_id, item.user_name, str(filename), item.request_timestamp)
+                            audio_stats.mark_queued(user_id)
                         self.mixed_source.add_stream(
                             user_id,
                             str(filename),
@@ -752,7 +756,7 @@ class AudioPlayer(commands.Cog):
                             item.after,
                             item.volume_boost,
                             item.audio_filters,
-                            item.request_timestamp,
+                            item.request_timestamp,  # Initial playback - track latency
                         )
                         _log.info(f"Started playing '{item.query}' for {item.user_name}")
 
@@ -842,6 +846,9 @@ class AudioPlayer(commands.Cog):
                         # Add to mixer
                         if self.mixed_source:
                             filename = CONFIG_AUDIO_BASE_DIR / PurePosixPath(item.query)
+                            # For items that already have stats tracking (interrupt=True items),
+                            # pass the request_timestamp so the stream continues tracking.
+                            # For normal queue transitions from initial playback, this will be None.
                             self.mixed_source.add_stream(
                                 user_id,
                                 str(filename),
@@ -849,7 +856,7 @@ class AudioPlayer(commands.Cog):
                                 item.after,
                                 item.volume_boost,
                                 item.audio_filters,
-                                item.request_timestamp,
+                                item.request_timestamp,  # Pass through from item
                             )
                             _log.info(
                                 f"Started playing '{item.query}' for {item.user_name} (user queue remaining: {len(queue)})"
@@ -1053,9 +1060,8 @@ class AudioPlayer(commands.Cog):
         stream.finished = True
         del self.mixed_source.streams[user_id]
         
-        # Schedule cleanup in background (non-blocking)
-        # No need to wait for process termination
-        threading.Thread(target=stream.cleanup, daemon=True).start()
+        # Cleanup synchronously - stats are done sync, process killing is done async internally
+        stream.cleanup()
             
         if user_name:
             _log.info(f"{user_name} (ID: {user_id}) stream stopped")

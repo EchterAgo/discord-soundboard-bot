@@ -557,20 +557,28 @@
                     // Get theme colors from CSS variables
                     const themeColors = this.getThemeColors();
                     
-                    // Create semi-transparent versions of primary color
-                    let barColor = 'rgba(54, 162, 235, 0.5)';
-                    let barBorderColor = 'rgba(54, 162, 235, 1)';
+                    // Use theme-derived colors for better integration
+                    let barColor, barBorderColor;
                     
-                    if (themeColors.primaryColor) {
-                        // Convert hex to rgba
-                        const hex = themeColors.primaryColor.replace('#', '');
-                        if (hex.length === 6) {
-                            const r = parseInt(hex.substr(0, 2), 16);
-                            const g = parseInt(hex.substr(2, 2), 16);
-                            const b = parseInt(hex.substr(4, 2), 16);
-                            barColor = `rgba(${r}, ${g}, ${b}, 0.5)`;
-                            barBorderColor = `rgba(${r}, ${g}, ${b}, 1)`;
-                        }
+                    // Use info color (typically blue/cyan) which has good contrast in most themes
+                    const computedStyle = getComputedStyle(document.documentElement);
+                    const infoColor = computedStyle.getPropertyValue('--bs-info').trim() ||
+                                     computedStyle.getPropertyValue('--bs-cyan').trim() ||
+                                     '#0dcaf0';
+                    
+                    // Convert hex to rgba
+                    const hex = infoColor.replace('#', '');
+                    if (hex.length === 6) {
+                        const r = parseInt(hex.substr(0, 2), 16);
+                        const g = parseInt(hex.substr(2, 2), 16);
+                        const b = parseInt(hex.substr(4, 2), 16);
+                        barColor = `rgba(${r}, ${g}, ${b}, 0.75)`;
+                        barBorderColor = `rgba(${r}, ${g}, ${b}, 1)`;
+                    } else {
+                        // Fallback
+                        console.log('Histogram: Using fallback color, infoColor was:', infoColor);
+                        barColor = 'rgba(13, 202, 240, 0.75)';
+                        barBorderColor = 'rgba(13, 202, 240, 1)';
                     }
 
                     return {
@@ -617,10 +625,12 @@
                     const histogramData = this.createHistogramData(values, label);
                     
                     if (this.charts[chartKey]) {
-                        // Update existing chart - only update data, not options
+                        // Update existing chart - update data AND colors
                         const chart = this.charts[chartKey];
                         chart.data.labels = histogramData.labels;
                         chart.data.datasets[0].data = histogramData.datasets[0].data;
+                        chart.data.datasets[0].backgroundColor = histogramData.datasets[0].backgroundColor;
+                        chart.data.datasets[0].borderColor = histogramData.datasets[0].borderColor;
                         chart.update('none'); // Use 'none' to skip animation
                     } else {
                         // Create new chart
