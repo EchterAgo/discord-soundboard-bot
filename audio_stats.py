@@ -108,7 +108,10 @@ class AudioStatsCollector:
         """Mark when a request was added to the queue."""
         with self.lock:
             if user_id in self.active_stats:
-                self.active_stats[user_id].queue_timestamp = time.time()
+                now = time.time()
+                # Ensure queue_timestamp is never earlier than request_timestamp
+                # (can happen due to clock skew between client and server)
+                self.active_stats[user_id].queue_timestamp = max(now, self.active_stats[user_id].request_timestamp)
                 _log.debug(f"[STATS] Marked queued for user ID: {user_id}")
             else:
                 _log.warning(f"[STATS] Cannot mark queued - user ID {user_id} not in active_stats")
@@ -144,6 +147,12 @@ class AudioStatsCollector:
                 stats = self.active_stats[user_id]
                 stats.stream_end_timestamp = time.time()
                 stats.calculate_latencies()
+                
+                # For interrupted streams that never got first byte, calculate partial total latency
+                # using stream_end as the endpoint instead of first_byte
+                if stats.total_latency is None and stats.stream_end_timestamp:
+                    stats.total_latency = (stats.stream_end_timestamp - stats.request_timestamp) * 1000
+                    _log.debug(f"[STATS] Stream interrupted before first byte, using end time for total latency")
 
                 total = f"{stats.total_latency:.2f}" if stats.total_latency is not None else "N/A"
                 playback = f"{stats.playback_duration:.2f}" if stats.playback_duration is not None else "N/A"

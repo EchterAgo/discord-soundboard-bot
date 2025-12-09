@@ -134,6 +134,7 @@
                         <table class="table table-sm table-hover">
                             <thead>
                                 <tr>
+                                    <th>Time</th>
                                     <th>User</th>
                                     <th>File</th>
                                     <th>Total</th>
@@ -145,6 +146,7 @@
                             </thead>
                             <tbody>
                                 <tr v-for="(stat, index) in audioStats.recent" :key="index">
+                                    <td class="text-nowrap"><small>{{ formatTimestamp(stat.request_timestamp) }}</small></td>
                                     <td>{{ stat.user_name }}</td>
                                     <td class="text-truncate" style="max-width: 150px;" :title="stat.filepath">{{
                                         stat.filepath }}</td>
@@ -302,7 +304,11 @@
                 formatTimestamp(timestamp) {
                     if (!timestamp) return 'N/A';
                     const date = new Date(timestamp * 1000);
-                    return date.toLocaleTimeString();
+                    const hours = date.getHours().toString().padStart(2, '0');
+                    const minutes = date.getMinutes().toString().padStart(2, '0');
+                    const seconds = date.getSeconds().toString().padStart(2, '0');
+                    const ms = date.getMilliseconds().toString().padStart(3, '0');
+                    return `${hours}:${minutes}:${seconds}.${ms}`;
                 },
 
                 toggleAutoRefresh() {

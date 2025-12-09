@@ -339,17 +339,19 @@ class UserAudioStream:
         # Track stream end for stats
         audio_stats.mark_stream_end(self.user_id)
 
-        # Stop progress thread
-        self.progress_stop_event.set()
-        if self.progress_thread and self.progress_thread.is_alive():
-            self.progress_thread.join(timeout=0.5)
-
+        # Kill the process first to unblock the progress thread
         if self.process:
             try:
                 self.process.kill()
-                self.process.wait(timeout=1)
+                # Don't wait for process to fully terminate - just kill and move on
+                # The OS will clean it up
             except Exception as e:
-                _log.debug(f"Error cleaning up process: {e}")
+                _log.debug(f"Error killing process: {e}")
+
+        # Signal progress thread to stop (it should exit quickly now that process is killed)
+        self.progress_stop_event.set()
+        # Don't wait for the thread - let it die on its own
+        # It will exit when it gets EOF from the killed process
 
 
 class MixedAudioSource(discord.AudioSource):
