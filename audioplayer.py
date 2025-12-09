@@ -121,6 +121,8 @@ class UserAudioStream:
 
         args = [
             "ffmpeg",
+            "-thread_queue_size",
+            "512",  # Force separate input thread, prevent packet drops in low-latency scenarios
             "-fflags",
             "+discardcorrupt",  # Only discard corrupt frames, keep buffering for accurate decoding
             "-i",
