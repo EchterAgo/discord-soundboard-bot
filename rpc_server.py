@@ -27,7 +27,7 @@ from audio_stats import audio_stats
 
 _log = logging.getLogger(__name__)
 
-# WebSocket connections registry - maps WebSocket to user info dict {"username": str, "ip": str, "hostname": str, "last_ping": float}
+# WebSocket connections registry - maps WebSocket to user info dict {"username": str, "ip": str, "hostname": str, "last_ping": float, "registered": bool}
 websocket_connections: Dict = {}
 
 # File watcher
@@ -150,11 +150,14 @@ def _build_queue_status(audio_player, guild):
     Returns:
         Dictionary containing queue status
     """
+    # Filter out unregistered connections (debug windows, etc.) from the connection list
+    registered_connections = [conn for conn in websocket_connections.values() if conn.get("registered", False)]
+    
     status = {
         "is_playing": audio_player.is_processing,
         "connected": guild.voice_client is not None,
-        "connected_users": len(websocket_connections),
-        "connected_user_list": list(websocket_connections.values()),
+        "connected_users": len(registered_connections),
+        "connected_user_list": registered_connections,
         "user_queues": [],
         "active_streams": [],
         "total_queued": 0,
@@ -347,9 +350,9 @@ async def jsonrpc_play(
 
         queue_start = time.time()
         
-        # Use server timestamp instead of client timestamp to avoid clock skew issues
-        # The client timestamp is useful for end-to-end latency, but causes problems
-        # when mixed with server-side timestamps for intermediate measurements
+        # Use both client and server timestamps:
+        # - client timestamp (if provided and adjusted for clock offset) for end-to-end latency
+        # - server timestamp for intermediate pipeline measurements to avoid clock skew
         server_request_timestamp = queue_start
 
         await audio_player.queue_sound(
@@ -363,6 +366,7 @@ async def jsonrpc_play(
             volume_boost=volume_boost,
             audio_filters=audio_filters,
             request_timestamp=server_request_timestamp,
+            client_request_timestamp=request_timestamp,  # Client timestamp adjusted for clock offset
         )
         queue_time = (time.time() - queue_start) * 1000
         _log.debug(f"[RPC] Sound queued in {queue_time:.2f}ms")
@@ -763,15 +767,16 @@ async def jsonrpc_register_user(context, user_name: str, channelid: str = "10336
     if not ws:
         return Error(1, "No WebSocket connection found")
 
-    # Update the username for this connection (keep existing IP)
+    # Update the username for this connection and mark as registered
     if ws in websocket_connections:
         websocket_connections[ws]["username"] = user_name
+        websocket_connections[ws]["registered"] = True
         _log.info(
             f"Updated user to '{user_name}' from IP {websocket_connections[ws]['ip']}. Total connections: {len(websocket_connections)}"
         )
     else:
         # Shouldn't happen, but handle it
-        websocket_connections[ws] = {"username": user_name, "ip": "unknown"}
+        websocket_connections[ws] = {"username": user_name, "ip": "unknown", "registered": True}
         _log.warning(f"Registered user '{user_name}' for unknown WebSocket connection")
 
     # Broadcast updated connection list
@@ -800,6 +805,7 @@ async def handle_websocket(request):
         "connected_at": current_time,
         "last_ping": current_time,
         "ping_ms": 0,
+        "registered": False,
     }
     _log.info(
         f"WebSocket client connected from {real_ip} ({hostname}). Total connections: {len(websocket_connections)}"
@@ -813,11 +819,12 @@ async def handle_websocket(request):
                 try:
                     data = json.loads(msg.data)
 
-                    # Handle ping/pong for latency measurement
+                    # Handle ping/pong for latency measurement and clock synchronization
                     if data.get("type") == "ping":
-                        # Just echo back pong - client will calculate RTT
-                        websocket_connections[ws]["last_ping"] = time.time()
-                        await ws.send_json({"type": "pong"})
+                        # Send back pong with server timestamp for clock sync
+                        server_time = time.time()
+                        websocket_connections[ws]["last_ping"] = server_time
+                        await ws.send_json({"type": "pong", "server_time": server_time})
                         continue
 
                     # Handle JSON-RPC over WebSocket

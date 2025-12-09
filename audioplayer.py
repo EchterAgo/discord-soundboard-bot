@@ -58,12 +58,14 @@ class QueueItem:
         volume_boost: float = 1.0,
         audio_filters: Optional[Dict] = None,
         request_timestamp: Optional[float] = None,
+        client_request_timestamp: Optional[float] = None,
     ):
         self.query = query
         self.user_id = user_id
         self.user_name = user_name
         self.after = after
         self.request_timestamp = request_timestamp
+        self.client_request_timestamp = client_request_timestamp
         # Handle backward compatibility: volume_boost can be in audio_filters or as separate param
         self.audio_filters = audio_filters or {}
         if "volume_boost" in self.audio_filters:
@@ -617,6 +619,7 @@ class AudioPlayer(commands.Cog):
         volume_boost: float = 1.0,
         audio_filters: Optional[Dict] = None,
         request_timestamp: Optional[float] = None,
+        client_request_timestamp: Optional[float] = None,
     ):
         """Queue a sound to play in the user's personal queue.
 
@@ -630,7 +633,8 @@ class AudioPlayer(commands.Cog):
             user_name: Display name of user requesting playback
             volume_boost: Volume multiplier (0.0 to 3.0, default 1.0)
             audio_filters: Dictionary of audio filter settings
-            request_timestamp: Timestamp when the request was initiated (for latency tracking)
+            request_timestamp: Server timestamp when the request was received (for latency tracking)
+            client_request_timestamp: Client timestamp when user clicked (adjusted for clock offset)
         """
         if not ctx.voice_client:
             raise commands.CommandError("Bot is not connected to a voice channel.")
@@ -644,7 +648,7 @@ class AudioPlayer(commands.Cog):
         if not filename.is_file():
             raise commands.CommandError("Audio file not found.")
 
-        item = QueueItem(query, user_id, user_name, after, volume_boost, audio_filters, request_timestamp)
+        item = QueueItem(query, user_id, user_name, after, volume_boost, audio_filters, request_timestamp, client_request_timestamp)
 
         # Check if voice client changed (reconnection) - need to restart playback
         if self.current_voice_client is not None and self.current_voice_client != ctx.voice_client:
@@ -668,10 +672,11 @@ class AudioPlayer(commands.Cog):
 
                 # Track request start for stats AFTER stopping old stream
                 if request_timestamp is None:
-                    request_timestamp = audio_stats.start_request(user_id, user_name, str(filename))
+                    request_timestamp = audio_stats.start_request(user_id, user_name, str(filename), client_request_timestamp=client_request_timestamp)
                 else:
-                    audio_stats.start_request(user_id, user_name, str(filename), request_timestamp)
+                    audio_stats.start_request(user_id, user_name, str(filename), request_timestamp, client_request_timestamp)
                 item.request_timestamp = request_timestamp
+                item.client_request_timestamp = client_request_timestamp
 
                 # Add to front of queue to play immediately
                 self.user_queues[user_id].appendleft(item)
@@ -747,7 +752,7 @@ class AudioPlayer(commands.Cog):
                         filename = CONFIG_AUDIO_BASE_DIR / PurePosixPath(item.query)
                         # Track stats for initial playback start (this is a new user action)
                         if item.request_timestamp is not None:
-                            audio_stats.start_request(user_id, item.user_name, str(filename), item.request_timestamp)
+                            audio_stats.start_request(user_id, item.user_name, str(filename), item.request_timestamp, item.client_request_timestamp)
                             audio_stats.mark_queued(user_id)
                         self.mixed_source.add_stream(
                             user_id,

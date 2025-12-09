@@ -18,21 +18,28 @@ class AudioPipelineStats:
     user_id: int
     user_name: str
     filepath: str
-    request_timestamp: float
+    request_timestamp: float  # Server time when request was received
+    client_request_timestamp: Optional[float] = None  # Client time when user clicked (adjusted for clock offset)
     queue_timestamp: Optional[float] = None  # When added to queue
     stream_start_timestamp: Optional[float] = None  # When ffmpeg process started
     first_byte_timestamp: Optional[float] = None  # When first byte was decoded
     stream_end_timestamp: Optional[float] = None  # When playback finished
 
     # Latency metrics (in milliseconds)
+    client_to_server_latency: Optional[float] = None  # Time from client click to server receive
     queue_latency: Optional[float] = None  # Time from request to queue
     processing_latency: Optional[float] = None  # Time from queue to stream start
     decode_latency: Optional[float] = None  # Time from stream start to first byte
     total_latency: Optional[float] = None  # Time from request to first byte
+    end_to_end_latency: Optional[float] = None  # Time from client click to first byte
     playback_duration: Optional[float] = None  # Total playback time
 
     def calculate_latencies(self):
         """Calculate all latency metrics."""
+        # Client to server latency (if client timestamp was provided)
+        if self.client_request_timestamp:
+            self.client_to_server_latency = (self.request_timestamp - self.client_request_timestamp) * 1000
+
         if self.queue_timestamp:
             self.queue_latency = (self.queue_timestamp - self.request_timestamp) * 1000
 
@@ -44,6 +51,10 @@ class AudioPipelineStats:
 
         if self.first_byte_timestamp:
             self.total_latency = (self.first_byte_timestamp - self.request_timestamp) * 1000
+            
+            # End-to-end latency from client click to first audio byte
+            if self.client_request_timestamp:
+                self.end_to_end_latency = (self.first_byte_timestamp - self.client_request_timestamp) * 1000
 
         if self.stream_end_timestamp and self.stream_start_timestamp:
             self.playback_duration = (self.stream_end_timestamp - self.stream_start_timestamp) * 1000
@@ -55,14 +66,17 @@ class AudioPipelineStats:
             "user_name": self.user_name,
             "filepath": self.filepath.split("/")[-1] if isinstance(self.filepath, str) else str(self.filepath),
             "request_timestamp": self.request_timestamp,
+            "client_request_timestamp": self.client_request_timestamp,
             "queue_timestamp": self.queue_timestamp,
             "stream_start_timestamp": self.stream_start_timestamp,
             "first_byte_timestamp": self.first_byte_timestamp,
             "stream_end_timestamp": self.stream_end_timestamp,
+            "client_to_server_latency": round(self.client_to_server_latency, 2) if self.client_to_server_latency else None,
             "queue_latency": round(self.queue_latency, 2) if self.queue_latency else None,
             "processing_latency": round(self.processing_latency, 2) if self.processing_latency else None,
             "decode_latency": round(self.decode_latency, 2) if self.decode_latency else None,
             "total_latency": round(self.total_latency, 2) if self.total_latency else None,
+            "end_to_end_latency": round(self.end_to_end_latency, 2) if self.end_to_end_latency else None,
             "playback_duration": round(self.playback_duration, 2) if self.playback_duration else None,
         }
 
@@ -76,14 +90,15 @@ class AudioStatsCollector:
         self.active_stats: Dict[int, AudioPipelineStats] = {}  # user_id -> current stats
         self.lock = threading.Lock()
 
-    def start_request(self, user_id: int, user_name: str, filepath: str, timestamp: Optional[float] = None) -> float:
+    def start_request(self, user_id: int, user_name: str, filepath: str, timestamp: Optional[float] = None, client_request_timestamp: Optional[float] = None) -> float:
         """Start tracking a new audio request.
 
         Args:
             user_id: User ID making the request
             user_name: User name
             filepath: Path to audio file
-            timestamp: Optional timestamp (defaults to current time)
+            timestamp: Optional server timestamp (defaults to current time)
+            client_request_timestamp: Optional client timestamp adjusted for clock offset
 
         Returns:
             Request timestamp
@@ -95,7 +110,11 @@ class AudioStatsCollector:
             # Don't overwrite if we're already tracking this user
             if user_id not in self.active_stats:
                 stats = AudioPipelineStats(
-                    user_id=user_id, user_name=user_name, filepath=filepath, request_timestamp=timestamp
+                    user_id=user_id, 
+                    user_name=user_name, 
+                    filepath=filepath, 
+                    request_timestamp=timestamp,
+                    client_request_timestamp=client_request_timestamp
                 )
                 self.active_stats[user_id] = stats
                 _log.debug(f"[STATS] Started tracking request for {user_name} (ID: {user_id})")
@@ -188,6 +207,8 @@ class AudioStatsCollector:
                 queue_latencies = [s.queue_latency for s in self.history if s.queue_latency is not None]
                 processing_latencies = [s.processing_latency for s in self.history if s.processing_latency is not None]
                 decode_latencies = [s.decode_latency for s in self.history if s.decode_latency is not None]
+                client_to_server_latencies = [s.client_to_server_latency for s in self.history if s.client_to_server_latency is not None]
+                end_to_end_latencies = [s.end_to_end_latency for s in self.history if s.end_to_end_latency is not None]
 
                 averages = {}
                 percentiles = {}
@@ -226,6 +247,38 @@ class AudioStatsCollector:
                         "p99": (
                             round(statistics.quantiles(decode_latencies, n=100)[98], 2)
                             if len(decode_latencies) >= 100
+                            else None
+                        ),
+                    }
+                
+                if client_to_server_latencies:
+                    averages["client_to_server"] = round(statistics.mean(client_to_server_latencies), 2)
+                    percentiles["client_to_server"] = {
+                        "p50": round(statistics.median(client_to_server_latencies), 2),
+                        "p95": (
+                            round(statistics.quantiles(client_to_server_latencies, n=20)[18], 2)
+                            if len(client_to_server_latencies) >= 20
+                            else None
+                        ),
+                        "p99": (
+                            round(statistics.quantiles(client_to_server_latencies, n=100)[98], 2)
+                            if len(client_to_server_latencies) >= 100
+                            else None
+                        ),
+                    }
+                
+                if end_to_end_latencies:
+                    averages["end_to_end"] = round(statistics.mean(end_to_end_latencies), 2)
+                    percentiles["end_to_end"] = {
+                        "p50": round(statistics.median(end_to_end_latencies), 2),
+                        "p95": (
+                            round(statistics.quantiles(end_to_end_latencies, n=20)[18], 2)
+                            if len(end_to_end_latencies) >= 20
+                            else None
+                        ),
+                        "p99": (
+                            round(statistics.quantiles(end_to_end_latencies, n=100)[98], 2)
+                            if len(end_to_end_latencies) >= 100
                             else None
                         ),
                     }

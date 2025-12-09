@@ -42,6 +42,11 @@ let wsCallbacks = new Map();
 let wsReadyPromise = null;
 let wsReadyResolve = null;
 
+// Clock synchronization
+let clockOffset = 0; // Estimated offset: server_time - client_time (in seconds)
+let lastPingTime = 0;
+let pingInterval = null;
+
 function initWebSocket(onQueueUpdate, onFileListUpdate, onConfigUpdate, onConnected) {
     if (websocket && (websocket.readyState === WebSocket.CONNECTING || websocket.readyState === WebSocket.OPEN)) {
         return wsReadyPromise;
@@ -65,6 +70,8 @@ function initWebSocket(onQueueUpdate, onFileListUpdate, onConfigUpdate, onConnec
             wsReadyResolve();
             wsReadyResolve = null;
         }
+        // Start periodic ping for clock synchronization
+        startPeriodicPing();
         // Call the onConnected callback (for re-registering username on reconnect)
         if (onConnected) {
             onConnected();
@@ -75,13 +82,49 @@ function initWebSocket(onQueueUpdate, onFileListUpdate, onConfigUpdate, onConnec
         try {
             const data = JSON.parse(event.data);
 
-            // Handle pong responses to calculate RTT
+            // Handle pong responses to calculate RTT and clock offset
             if (data.type === 'pong') {
-                const rtt = Date.now() - (window.lastPingTimestamp || Date.now());
+                const clientReceiveTime = Date.now() / 1000; // Current time in seconds (T4)
+                const clientSendTime = lastPingTime; // When we sent ping (T1)
+                const rtt = clientReceiveTime - clientSendTime; // RTT in seconds
+                const serverTime = data.server_time; // Server timestamp when pong was sent (T3)
+                
+                // Discard measurements with abnormally high RTT (> 100ms)
+                // This filters out delayed pongs from initial connection or network hiccups
+                if (rtt > 0.1) {
+                    console.log(`[Clock Sync] Discarding high RTT measurement: ${(rtt * 1000).toFixed(1)}ms`);
+                    return;
+                }
+                
+                // Estimate clock offset using midpoint method
+                // Assume server captured timestamp at midpoint of round trip
+                // clock_offset = server_time - client_midpoint
+                const clientMidpoint = (clientSendTime + clientReceiveTime) / 2;
+                const estimatedOffset = serverTime - clientMidpoint;
+                
+                // Use adaptive smoothing: faster convergence when offset is uninitialized or way off
+                let alpha; // Weight for new measurement (0-1, higher = faster convergence)
+                if (clockOffset === 0) {
+                    // First good measurement: use it directly
+                    clockOffset = estimatedOffset;
+                    console.log(`[Clock Sync] Initial offset: ${(clockOffset * 1000).toFixed(1)}ms`);
+                    return;
+                } else if (Math.abs(estimatedOffset - clockOffset) > 0.05) {
+                    // Large deviation (>50ms): fast convergence
+                    alpha = 0.5;
+                } else {
+                    // Small deviation: slow smoothing for stability
+                    alpha = 0.2;
+                }
+                
+                clockOffset = clockOffset * (1 - alpha) + estimatedOffset * alpha;
+                
+                console.log(`[Clock Sync] RTT: ${(rtt * 1000).toFixed(1)}ms, Estimated: ${(estimatedOffset * 1000).toFixed(1)}ms, Smoothed: ${(clockOffset * 1000).toFixed(1)}ms, α=${alpha.toFixed(1)}`);
+                
                 // Send RTT back to server via RPC so other clients see it
                 if (websocket && websocket.readyState === WebSocket.OPEN) {
                     try {
-                        rpcCall('update_ping', { ping_ms: rtt }).catch(() => { });
+                        rpcCall('update_ping', { ping_ms: rtt * 1000 }).catch(() => { });
                     } catch (e) {
                         // Silently ignore ping update failures
                     }
@@ -143,6 +186,12 @@ function initWebSocket(onQueueUpdate, onFileListUpdate, onConfigUpdate, onConnec
         console.log('[WebSocket] Disconnected');
         websocket = null;
 
+        // Stop periodic ping
+        if (pingInterval) {
+            clearInterval(pingInterval);
+            pingInterval = null;
+        }
+
         // Reset ready promise
         wsReadyPromise = null;
         wsReadyResolve = null;
@@ -157,6 +206,28 @@ function initWebSocket(onQueueUpdate, onFileListUpdate, onConfigUpdate, onConnec
     };
 
     return wsReadyPromise;
+}
+
+function startPeriodicPing() {
+    // Clear any existing interval
+    if (pingInterval) {
+        clearInterval(pingInterval);
+    }
+    
+    // Send initial ping immediately
+    sendPing();
+    
+    // Then ping every 5 seconds for clock sync
+    pingInterval = setInterval(() => {
+        sendPing();
+    }, 5000);
+}
+
+function sendPing() {
+    if (websocket && websocket.readyState === WebSocket.OPEN) {
+        lastPingTime = Date.now() / 1000; // Store in seconds
+        websocket.send(JSON.stringify({ type: 'ping' }));
+    }
 }
 
 async function rpcCallWs(method, params = {}) {
@@ -809,7 +880,11 @@ createApp({
             }
 
             // Capture timestamp at the moment of button press for latency tracking
-            const request_timestamp = Date.now() / 1000; // Convert to seconds for Python
+            // Adjust for clock offset to get server-equivalent time
+            const client_timestamp = Date.now() / 1000; // Client time in seconds
+            const request_timestamp = client_timestamp + clockOffset; // Adjusted to server time
+            
+            console.log(`[Play] Client time: ${client_timestamp.toFixed(3)}, Clock offset: ${(clockOffset * 1000).toFixed(1)}ms, Adjusted: ${request_timestamp.toFixed(3)}`);
 
             try {
                 const params = {
