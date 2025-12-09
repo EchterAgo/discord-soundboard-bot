@@ -49,6 +49,11 @@
                     <span class="badge bg-secondary ms-2" v-if="!queueStatus.connected">Not Connected</span>
                     <span class="badge bg-info ms-2" v-else-if="!queueStatus.is_playing">Connected</span>
                     <span class="badge bg-success ms-2" v-else>Playing</span>
+                    <span class="badge ms-2" v-if="queueStatus.average_latency !== null && queueStatus.average_latency !== undefined"
+                        :class="getLatencyBadgeClass(queueStatus.average_latency)"
+                        :title="'Voice client average latency: ' + queueStatus.average_latency + 'ms'">
+                        <i class="bi bi-reception-4"></i> {{ queueStatus.average_latency }}ms
+                    </span>
                 </span>
                 <div class="d-flex align-items-center gap-2">
                     <button class="btn btn-sm" :class="'btn-' + playModeInfo.color" @click="togglePlayMode"

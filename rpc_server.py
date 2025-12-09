@@ -158,7 +158,17 @@ def _build_queue_status(audio_player, guild):
         "user_queues": [],
         "active_streams": [],
         "total_queued": 0,
+        "average_latency": None,
     }
+
+    # Get voice client latency if connected
+    if guild.voice_client is not None:
+        try:
+            # average_latency is in seconds, convert to ms and round to 1 decimal
+            latency_ms = round(guild.voice_client.average_latency * 1000, 1)
+            status["average_latency"] = latency_ms
+        except Exception:
+            pass
 
     # Get user queues
     for user_id, queue in audio_player.user_queues.items():

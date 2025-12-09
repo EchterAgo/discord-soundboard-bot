@@ -721,6 +721,15 @@ createApp({
             this.saveTheme();
         },
 
+        getLatencyBadgeClass(latency) {
+            // Color-code latency badges based on performance
+            // Good: < 50ms, Warning: 50-150ms, Danger: > 150ms
+            if (!latency) return 'bg-secondary';
+            if (latency < 50) return 'bg-success';
+            if (latency < 150) return 'bg-warning';
+            return 'bg-danger';
+        },
+
         togglePlayMode() {
             const modes = ['instant', 'queue', 'next'];
             const currentIndex = modes.indexOf(this.playMode);
