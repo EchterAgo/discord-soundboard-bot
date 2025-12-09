@@ -14,7 +14,7 @@ from functools import lru_cache
 
 from config import CONFIG_AUDIO_BASE_DIR
 from utils import caseless_in, find_files
-from observable import ObservableDeque, ObservableDict, ObservableDequeDict
+from observable import ObservableDeque, ObservableDequeDict
 from typing import Callable, Iterator, Optional, Dict
 import audioop
 from audio_stats import audio_stats
@@ -372,8 +372,8 @@ class MixedAudioSource(discord.AudioSource):
         stream_changed_callback: Optional[Callable[[], None]] = None,
         event_loop: Optional[asyncio.AbstractEventLoop] = None,
     ):
-        # Use ObservableDict to automatically trigger callback on changes
-        self.streams: Dict[int, UserAudioStream] = ObservableDict(stream_changed_callback)
+        # Use regular dict - avoid callbacks from time-critical audio thread
+        self.streams: Dict[int, UserAudioStream] = {}
         self.lock = threading.Lock()
         self._finished = False
         self.stream_finished_event = stream_finished_event
@@ -402,9 +402,15 @@ class MixedAudioSource(discord.AudioSource):
             stream = UserAudioStream(filepath, user_id, user_name, volume_boost, audio_filters, request_timestamp)
             stream.after_callback = after
             stream.start()
-            # Assignment triggers ObservableDict callback
             self.streams[user_id] = stream
             _log.info(f"Added stream for {user_name} (ID: {user_id}): {filepath} (volume: {volume_boost}x)")
+            
+            # Trigger callback after adding (safe location, not in audio thread)
+            if self.stream_changed_callback:
+                try:
+                    self.stream_changed_callback()
+                except Exception as e:
+                    _log.debug(f"Error in stream_changed_callback: {e}")
 
     def read(self) -> bytes:
         """Read and mix audio from all active streams"""
@@ -425,9 +431,8 @@ class MixedAudioSource(discord.AudioSource):
             for user_id, stream in list(self.streams.items()):
                 if stream.finished:
                     stream.cleanup()
-                    # Deletion triggers ObservableDict callback
                     del self.streams[user_id]
-                    # Signal that a stream finished
+                    # Signal that a stream finished (no callback from audio thread)
                     if self.stream_finished_event:
                         try:
                             # Use call_soon_threadsafe since we're in a thread
@@ -454,21 +459,14 @@ class MixedAudioSource(discord.AudioSource):
                     # No more data - stream is finished
                     stream.finished = True
                     stream.cleanup()
-                    # Deletion triggers ObservableDict callback
                     del self.streams[user_id]
                     _log.info(f"Stream finished for {stream.user_name} (ID: {user_id}) - no more data")
-                    # Signal that a stream finished
+                    # Signal that a stream finished (no callback from audio thread)
                     if self.stream_finished_event:
                         try:
                             # Use call_soon_threadsafe since we're in a thread
                             if self.event_loop:
                                 self.event_loop.call_soon_threadsafe(self.stream_finished_event.set)
-                        except Exception:
-                            pass
-                    # Also trigger the callback directly for immediate update
-                    if self.stream_changed_callback:
-                        try:
-                            self.stream_changed_callback()
                         except Exception:
                             pass
 
@@ -518,14 +516,28 @@ class AudioPlayer(commands.Cog):
         self.qualified_name
         self.bot = bot
         self.queue_update_callback = None  # Callback for queue updates
+        self._queue_update_pending = False  # Debounce flag
+        self._queue_update_delay = 0.05  # 50ms debounce delay
         self.user_queues: Dict[int, ObservableDeque] = ObservableDequeDict(
-            on_change_callback=lambda: self.queue_update_callback() if self.queue_update_callback else None
+            on_change_callback=lambda: self._debounced_queue_update() if self.queue_update_callback else None
         )
         self.mixed_source: Optional[MixedAudioSource] = None
         self.is_processing = False
         self.process_lock = asyncio.Lock()
         self.stream_finished_event = asyncio.Event()
         self.current_voice_client = None  # Track current voice client to detect reconnections
+
+    async def _debounced_queue_update(self):
+        """Debounced queue update to prevent rapid-fire broadcasts."""
+        if self._queue_update_pending or not self.queue_update_callback:
+            return  # Already scheduled or no callback set
+        
+        self._queue_update_pending = True
+        await asyncio.sleep(self._queue_update_delay)
+        self._queue_update_pending = False
+        
+        # Call the callback (it's an async function)
+        await self.queue_update_callback()  # type: ignore
 
     @commands.command()
     @commands.guild_only()
@@ -737,9 +749,16 @@ class AudioPlayer(commands.Cog):
 
             # Create mixed audio source with callback for stream changes
             def on_stream_changed():
-                # This gets called from the audio thread, so use call_soon_threadsafe
+                # Schedule debounced update - handles both thread and async contexts
                 if self.queue_update_callback:
-                    event_loop.call_soon_threadsafe(lambda: asyncio.create_task(self.queue_update_callback()))
+                    try:
+                        # Try to get running loop to determine context
+                        loop = asyncio.get_running_loop()
+                        # We're in async context, schedule task directly
+                        loop.create_task(self._debounced_queue_update())
+                    except RuntimeError:
+                        # No running loop - we're in a thread, use call_soon_threadsafe
+                        event_loop.call_soon_threadsafe(lambda: asyncio.create_task(self._debounced_queue_update()))
 
             self.mixed_source = MixedAudioSource(self.stream_finished_event, on_stream_changed, event_loop)
 
@@ -826,7 +845,7 @@ class AudioPlayer(commands.Cog):
                     if self.mixed_source and self.mixed_source.streams:
                         # Trigger queue update to send progress (throttled to 1/sec)
                         if self.queue_update_callback:
-                            asyncio.create_task(self.queue_update_callback())
+                            asyncio.create_task(self._debounced_queue_update())
                         last_progress_update = current_time
 
                 async with self.process_lock:

@@ -207,6 +207,9 @@ function initWebSocket(onQueueUpdate, onFileListUpdate, onConfigUpdate, onConnec
             }
         } catch (e) {
             console.error('[WebSocket] Error parsing message:', e);
+            console.error('[WebSocket] Raw message data:', event.data);
+            console.error('[WebSocket] Message length:', event.data.length);
+            console.error('[WebSocket] Message around error position:', event.data.substring(Math.max(0, 470), Math.min(event.data.length, 500)));
         }
     };
 

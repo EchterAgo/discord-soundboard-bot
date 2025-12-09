@@ -163,6 +163,9 @@ async def start_discord_bot():
     # Start file watcher for audio directory changes
     loop = asyncio.get_event_loop()
     rpc_server.start_file_watcher(loop)
+    
+    # Start periodic queue status broadcasts to keep UI updated
+    rpc_server.start_periodic_broadcast(bot, "1033659964457230392", interval=5.0)
 
     asyncio.create_task(start_webserver(bot))
 

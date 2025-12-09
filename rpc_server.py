@@ -34,6 +34,9 @@ websocket_connections: Dict = {}
 file_observer = None
 event_loop = None
 
+# Periodic broadcast task
+periodic_broadcast_task = None
+
 
 def get_hostname_from_ip(ip: str) -> str:
     """Get hostname from IP address using reverse DNS lookup.
@@ -94,7 +97,7 @@ async def broadcast_file_list_update():
 
     try:
         files = list(find_files(CONFIG_AUDIO_BASE_DIR))
-        message = json.dumps({"type": "file_list_update", "files": files})
+        message = json.dumps({"type": "file_list_update", "files": files}, allow_nan=False)
 
         disconnected = set()
         for ws in websocket_connections:
@@ -138,6 +141,52 @@ def stop_file_watcher():
         file_observer.join()
         file_observer = None
         _log.info("Stopped file watcher")
+
+
+async def periodic_queue_broadcast(bot, channel_id, interval=5.0):
+    """Periodically broadcast queue status to keep UI updated with ping/clock offset data.
+    
+    Args:
+        bot: Discord bot instance
+        channel_id: Voice channel ID
+        interval: Broadcast interval in seconds (default: 5.0)
+    """
+    while True:
+        try:
+            await asyncio.sleep(interval)
+            # Only broadcast if there are connected clients
+            if websocket_connections:
+                await broadcast_queue_update(bot, channel_id)
+        except asyncio.CancelledError:
+            _log.info("Periodic broadcast task cancelled")
+            break
+        except Exception as e:
+            _log.error(f"Error in periodic broadcast: {e}", exc_info=True)
+
+
+def start_periodic_broadcast(bot, channel_id, interval=5.0):
+    """Start periodic queue status broadcasts.
+    
+    Args:
+        bot: Discord bot instance
+        channel_id: Voice channel ID
+        interval: Broadcast interval in seconds (default: 5.0)
+    """
+    global periodic_broadcast_task
+    
+    if periodic_broadcast_task is None or periodic_broadcast_task.done():
+        periodic_broadcast_task = asyncio.create_task(periodic_queue_broadcast(bot, channel_id, interval))
+        _log.info(f"Started periodic queue status broadcasts (interval: {interval}s)")
+
+
+def stop_periodic_broadcast():
+    """Stop periodic queue status broadcasts."""
+    global periodic_broadcast_task
+    
+    if periodic_broadcast_task and not periodic_broadcast_task.done():
+        periodic_broadcast_task.cancel()
+        periodic_broadcast_task = None
+        _log.info("Stopped periodic queue status broadcasts")
 
 
 def _build_queue_status(audio_player, guild):
@@ -224,7 +273,12 @@ async def broadcast_queue_update(bot, channelid):
         status["type"] = "queue_update"  # Add type for WebSocket message
 
         # Broadcast to all connected clients
-        message = json.dumps(status)
+        try:
+            message = json.dumps(status, allow_nan=False)  # Reject NaN/Infinity to prevent invalid JSON
+        except (ValueError, TypeError) as e:
+            _log.error(f"Failed to serialize queue status to JSON: {e}. Status data: {status}")
+            return
+            
         disconnected = set()
         for ws in websocket_connections:
             try:
@@ -250,7 +304,7 @@ async def broadcast_config_update(user_name: str):
         return
 
     try:
-        message = json.dumps({"type": "config_update", "user_name": user_name})
+        message = json.dumps({"type": "config_update", "user_name": user_name}, allow_nan=False)
 
         disconnected = set()
         for ws in websocket_connections:
@@ -375,8 +429,8 @@ async def jsonrpc_play(
         user_config.add_recent_sound(user_name, query)
         await broadcast_config_update(user_name)
 
-        # Broadcast queue update to WebSocket clients
-        await broadcast_queue_update(bot, channelid)
+        # Queue update will be broadcast automatically via debounced callback
+        # (removed redundant broadcast_queue_update call here)
 
         total_time = (time.time() - start_time) * 1000
         _log.debug(f"[RPC] play request completed successfully in {total_time:.2f}ms")
