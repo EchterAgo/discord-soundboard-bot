@@ -205,6 +205,8 @@ createApp({
         return {
             username: localStorage.getItem('username') || '',
             theme: localStorage.getItem('theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'),
+            bootstrapTheme: localStorage.getItem('bootstrapTheme') || '',
+            bootswatchThemes: [],
             playMode: localStorage.getItem('playMode') || 'instant', // 'instant', 'queue', 'next'
             config: {
                 buttons: [],
@@ -719,6 +721,50 @@ createApp({
         toggleTheme() {
             this.theme = this.theme === 'dark' ? 'light' : 'dark';
             this.saveTheme();
+        },
+
+        changeBootstrapTheme() {
+            localStorage.setItem('bootstrapTheme', this.bootstrapTheme);
+            const themeLink = document.getElementById('bootstrap-theme-css');
+            
+            if (this.bootstrapTheme === 'dark') {
+                // Use Bootstrap's built-in dark mode
+                themeLink.href = 'https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css';
+                this.theme = 'dark';
+                document.body.setAttribute('data-bs-theme', 'dark');
+            } else if (this.bootstrapTheme) {
+                // Load Bootswatch theme
+                themeLink.href = `https://bootswatch.com/5/${this.bootstrapTheme}/bootstrap.min.css`;
+                this.theme = 'light';
+                document.body.setAttribute('data-bs-theme', 'light');
+            } else {
+                // Load default Bootstrap
+                themeLink.href = 'https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css';
+                this.theme = 'light';
+                document.body.setAttribute('data-bs-theme', 'light');
+            }
+            localStorage.setItem('theme', this.theme);
+        },
+
+        async fetchBootswatchThemes() {
+            try {
+                const response = await fetch('https://bootswatch.com/api/5.json');
+                const data = await response.json();
+                this.bootswatchThemes = data.themes || [];
+                console.log('[Bootswatch] Loaded', this.bootswatchThemes.length, 'themes');
+            } catch (error) {
+                console.error('[Bootswatch] Failed to fetch themes:', error);
+                // Fallback to some popular themes if API fails
+                this.bootswatchThemes = [
+                    { name: 'Cerulean' },
+                    { name: 'Cosmo' },
+                    { name: 'Cyborg' },
+                    { name: 'Darkly' },
+                    { name: 'Flatly' },
+                    { name: 'Slate' },
+                    { name: 'Superhero' }
+                ];
+            }
         },
 
         getLatencyBadgeClass(latency) {
@@ -1511,6 +1557,23 @@ createApp({
     async mounted() {
         // Apply theme
         document.body.setAttribute('data-bs-theme', this.theme);
+        
+        // Fetch available Bootswatch themes
+        await this.fetchBootswatchThemes();
+        
+        // Apply Bootstrap theme
+        this.changeBootstrapTheme();
+
+        // Listen for theme changes from other tabs/windows
+        window.addEventListener('storage', (e) => {
+            if (e.key === 'bootstrapTheme' && e.newValue !== null) {
+                this.bootstrapTheme = e.newValue;
+                this.changeBootstrapTheme();
+            } else if (e.key === 'theme' && e.newValue !== null) {
+                this.theme = e.newValue;
+                document.body.setAttribute('data-bs-theme', this.theme);
+            }
+        });
 
         // Set initial favicon
         this.updateFavicon(false);
