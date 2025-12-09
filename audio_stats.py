@@ -108,10 +108,7 @@ class AudioStatsCollector:
         """Mark when a request was added to the queue."""
         with self.lock:
             if user_id in self.active_stats:
-                now = time.time()
-                # Ensure queue_timestamp is never earlier than request_timestamp
-                # (can happen due to clock skew between client and server)
-                self.active_stats[user_id].queue_timestamp = max(now, self.active_stats[user_id].request_timestamp)
+                self.active_stats[user_id].queue_timestamp = time.time()
                 _log.debug(f"[STATS] Marked queued for user ID: {user_id}")
             else:
                 _log.warning(f"[STATS] Cannot mark queued - user ID {user_id} not in active_stats")

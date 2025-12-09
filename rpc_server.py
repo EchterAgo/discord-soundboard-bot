@@ -336,6 +336,11 @@ async def jsonrpc_play(
             voice_client = vc
 
         queue_start = time.time()
+        
+        # Use server timestamp instead of client timestamp to avoid clock skew issues
+        # The client timestamp is useful for end-to-end latency, but causes problems
+        # when mixed with server-side timestamps for intermediate measurements
+        server_request_timestamp = queue_start
 
         await audio_player.queue_sound(
             RpcContext(),
@@ -347,7 +352,7 @@ async def jsonrpc_play(
             user_name=user_name,
             volume_boost=volume_boost,
             audio_filters=audio_filters,
-            request_timestamp=request_timestamp,
+            request_timestamp=server_request_timestamp,
         )
         queue_time = (time.time() - queue_start) * 1000
         _log.debug(f"[RPC] Sound queued in {queue_time:.2f}ms")
