@@ -175,29 +175,29 @@
             </div>
 
             <!-- Percentiles Detail -->
-            <div v-if="audioStats.percentiles && Object.keys(audioStats.percentiles).length > 0" class="card mb-4">
+            <div v-if="clientPercentiles && Object.keys(clientPercentiles).length > 0" class="card mb-4">
                 <div class="card-header bg-success text-white" data-bs-toggle="collapse" data-bs-target="#collapsePercentiles" style="cursor: pointer;">
-                    <h5 class="mb-0"><i class="bi bi-bar-chart-line"></i> Percentile Details <i class="bi bi-chevron-down float-end"></i></h5>
+                    <h5 class="mb-0"><i class="bi bi-bar-chart-line"></i> Percentile Details ({{ allPlaybacks.length }} samples) <i class="bi bi-chevron-down float-end"></i></h5>
                 </div>
                 <div id="collapsePercentiles" class="collapse show">
                 <div class="card-body">
                     <div class="row">
-                        <div class="col-md-6" v-if="audioStats.percentiles.total">
+                        <div class="col-md-6" v-if="clientPercentiles.total">
                             <h6>Total Latency Percentiles</h6>
                             <ul class="list-unstyled">
-                                <li><strong>P50 (Median):</strong> {{ audioStats.percentiles.total.p50 || 'N/A' }} ms
+                                <li><strong>P50 (Median):</strong> {{ clientPercentiles.total.p50 || 'N/A' }} ms
                                 </li>
-                                <li><strong>P95:</strong> {{ audioStats.percentiles.total.p95 || 'N/A' }} ms</li>
-                                <li><strong>P99:</strong> {{ audioStats.percentiles.total.p99 || 'N/A' }} ms</li>
+                                <li><strong>P95:</strong> {{ clientPercentiles.total.p95 || 'N/A' }} ms</li>
+                                <li><strong>P99:</strong> {{ clientPercentiles.total.p99 || 'N/A' }} ms</li>
                             </ul>
                         </div>
-                        <div class="col-md-6" v-if="audioStats.percentiles.decode">
+                        <div class="col-md-6" v-if="clientPercentiles.decode">
                             <h6>Decode Latency Percentiles</h6>
                             <ul class="list-unstyled">
-                                <li><strong>P50 (Median):</strong> {{ audioStats.percentiles.decode.p50 || 'N/A' }} ms
+                                <li><strong>P50 (Median):</strong> {{ clientPercentiles.decode.p50 || 'N/A' }} ms
                                 </li>
-                                <li><strong>P95:</strong> {{ audioStats.percentiles.decode.p95 || 'N/A' }} ms</li>
-                                <li><strong>P99:</strong> {{ audioStats.percentiles.decode.p99 || 'N/A' }} ms</li>
+                                <li><strong>P95:</strong> {{ clientPercentiles.decode.p95 || 'N/A' }} ms</li>
+                                <li><strong>P99:</strong> {{ clientPercentiles.decode.p99 || 'N/A' }} ms</li>
                             </ul>
                         </div>
                     </div>
@@ -206,9 +206,9 @@
             </div>
 
             <!-- Histograms -->
-            <div v-if="audioStats.recent && audioStats.recent.length > 0" class="card mb-4">
+            <div v-if="allPlaybacks && allPlaybacks.length > 0" class="card mb-4">
                 <div class="card-header bg-info text-white" data-bs-toggle="collapse" data-bs-target="#collapseHistograms" style="cursor: pointer;">
-                    <h5 class="mb-0"><i class="bi bi-bar-chart"></i> Latency Distribution Histograms <i class="bi bi-chevron-down float-end"></i></h5>
+                    <h5 class="mb-0"><i class="bi bi-bar-chart"></i> Latency Distribution Histograms ({{ allPlaybacks.length }} samples) <i class="bi bi-chevron-down float-end"></i></h5>
                 </div>
                 <div id="collapseHistograms" class="collapse show">
                 <div class="card-body">
@@ -281,7 +281,9 @@
                         percentiles: {},
                         total_samples: 0
                     },
-                    refreshInterval: null
+                    refreshInterval: null,
+                    allPlaybacks: [], // Track all playbacks since page opened
+                    clientPercentiles: {} // Client-side calculated percentiles
                 };
             },
             created() {
@@ -320,6 +322,23 @@
                             percentiles: {},
                             total_samples: 0
                         };
+                        
+                        // Merge new playbacks into allPlaybacks (avoid duplicates based on timestamp + user)
+                        if (result && result.recent) {
+                            result.recent.forEach(newStat => {
+                                const exists = this.allPlaybacks.some(existing => 
+                                    existing.request_timestamp === newStat.request_timestamp && 
+                                    existing.user_id === newStat.user_id
+                                );
+                                if (!exists) {
+                                    this.allPlaybacks.push(newStat);
+                                }
+                            });
+                        }
+                        
+                        // Calculate client-side percentiles from all playbacks
+                        this.calculateClientPercentiles();
+                        
                         this.$nextTick(() => {
                             this.updateHistograms();
                         });
@@ -341,10 +360,54 @@
                             percentiles: {},
                             total_samples: 0
                         };
+                        this.allPlaybacks = [];
+                        this.clientPercentiles = {};
                         console.log('[Audio Stats] Statistics cleared');
                     } catch (error) {
                         console.error('[Audio Stats] Failed to clear audio stats:', error);
                     }
+                },
+
+                calculateClientPercentiles() {
+                    if (this.allPlaybacks.length === 0) {
+                        this.clientPercentiles = {};
+                        return;
+                    }
+
+                    const calculatePercentile = (values, percentile) => {
+                        if (values.length === 0) return null;
+                        const sorted = [...values].sort((a, b) => a - b);
+                        const index = Math.ceil((percentile / 100) * sorted.length) - 1;
+                        return Math.round(sorted[Math.max(0, index)]);
+                    };
+
+                    const totalLatencies = this.allPlaybacks.map(s => s.total_latency).filter(v => v != null);
+                    const decodeLatencies = this.allPlaybacks.map(s => s.decode_latency).filter(v => v != null);
+                    const queueLatencies = this.allPlaybacks.map(s => s.queue_latency).filter(v => v != null);
+                    const processingLatencies = this.allPlaybacks.map(s => s.processing_latency).filter(v => v != null);
+
+                    this.clientPercentiles = {
+                        total: {
+                            p50: calculatePercentile(totalLatencies, 50),
+                            p95: calculatePercentile(totalLatencies, 95),
+                            p99: calculatePercentile(totalLatencies, 99)
+                        },
+                        decode: {
+                            p50: calculatePercentile(decodeLatencies, 50),
+                            p95: calculatePercentile(decodeLatencies, 95),
+                            p99: calculatePercentile(decodeLatencies, 99)
+                        },
+                        queue: {
+                            p50: calculatePercentile(queueLatencies, 50),
+                            p95: calculatePercentile(queueLatencies, 95),
+                            p99: calculatePercentile(queueLatencies, 99)
+                        },
+                        processing: {
+                            p50: calculatePercentile(processingLatencies, 50),
+                            p95: calculatePercentile(processingLatencies, 95),
+                            p99: calculatePercentile(processingLatencies, 99)
+                        }
+                    };
                 },
 
                 getLatencyBadgeClass(latency) {
@@ -452,16 +515,16 @@
                 },
 
                 updateHistograms() {
-                    if (!this.audioStats.recent || this.audioStats.recent.length === 0) {
+                    if (!this.allPlaybacks || this.allPlaybacks.length === 0) {
                         this.destroyCharts();
                         return;
                     }
 
-                    // Extract latency values
-                    const totalLatencies = this.audioStats.recent.map(s => s.total_latency).filter(v => v != null);
-                    const decodeLatencies = this.audioStats.recent.map(s => s.decode_latency).filter(v => v != null);
-                    const queueLatencies = this.audioStats.recent.map(s => s.queue_latency).filter(v => v != null);
-                    const processingLatencies = this.audioStats.recent.map(s => s.processing_latency).filter(v => v != null);
+                    // Extract latency values from all playbacks
+                    const totalLatencies = this.allPlaybacks.map(s => s.total_latency).filter(v => v != null);
+                    const decodeLatencies = this.allPlaybacks.map(s => s.decode_latency).filter(v => v != null);
+                    const queueLatencies = this.allPlaybacks.map(s => s.queue_latency).filter(v => v != null);
+                    const processingLatencies = this.allPlaybacks.map(s => s.processing_latency).filter(v => v != null);
 
                     // Update or create charts
                     this.updateChart('totalLatency', totalLatencies, 'Total Latency (ms)');
