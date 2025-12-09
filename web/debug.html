@@ -20,7 +20,7 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
 
     <!-- Chart.js -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.js"></script>
 
     <link href="style-vue.css" rel="stylesheet">
 </head>
@@ -93,9 +93,10 @@
 
             <!-- Active Streams -->
             <div v-if="audioStats.active && audioStats.active.length > 0" class="card mb-4">
-                <div class="card-header bg-warning text-dark">
-                    <h5 class="mb-0"><i class="bi bi-activity"></i> Active Streams</h5>
+                <div class="card-header bg-warning text-dark" data-bs-toggle="collapse" data-bs-target="#collapseActive" style="cursor: pointer;">
+                    <h5 class="mb-0"><i class="bi bi-activity"></i> Active Streams <i class="bi bi-chevron-down float-end"></i></h5>
                 </div>
+                <div id="collapseActive" class="collapse show">
                 <div class="card-body">
                     <div class="table-responsive">
                         <table class="table table-sm table-striped">
@@ -125,13 +126,15 @@
                         </table>
                     </div>
                 </div>
+                </div>
             </div>
 
             <!-- Recent Stats -->
             <div v-if="audioStats.recent && audioStats.recent.length > 0" class="card mb-4">
-                <div class="card-header bg-primary text-white">
-                    <h5 class="mb-0"><i class="bi bi-clock-history"></i> Recent Playbacks</h5>
+                <div class="card-header bg-primary text-white" data-bs-toggle="collapse" data-bs-target="#collapseRecent" style="cursor: pointer;">
+                    <h5 class="mb-0"><i class="bi bi-clock-history"></i> Recent Playbacks <i class="bi bi-chevron-down float-end"></i></h5>
                 </div>
+                <div id="collapseRecent" class="collapse show">
                 <div class="card-body">
                     <div class="table-responsive">
                         <table class="table table-sm table-hover">
@@ -164,6 +167,7 @@
                         </table>
                     </div>
                 </div>
+                </div>
             </div>
 
             <div v-if="!audioStats.recent || audioStats.recent.length === 0" class="alert alert-info text-center">
@@ -172,9 +176,10 @@
 
             <!-- Percentiles Detail -->
             <div v-if="audioStats.percentiles && Object.keys(audioStats.percentiles).length > 0" class="card mb-4">
-                <div class="card-header bg-success text-white">
-                    <h5 class="mb-0"><i class="bi bi-bar-chart-line"></i> Percentile Details</h5>
+                <div class="card-header bg-success text-white" data-bs-toggle="collapse" data-bs-target="#collapsePercentiles" style="cursor: pointer;">
+                    <h5 class="mb-0"><i class="bi bi-bar-chart-line"></i> Percentile Details <i class="bi bi-chevron-down float-end"></i></h5>
                 </div>
+                <div id="collapsePercentiles" class="collapse show">
                 <div class="card-body">
                     <div class="row">
                         <div class="col-md-6" v-if="audioStats.percentiles.total">
@@ -197,13 +202,15 @@
                         </div>
                     </div>
                 </div>
+                </div>
             </div>
 
             <!-- Histograms -->
             <div v-if="audioStats.recent && audioStats.recent.length > 0" class="card mb-4">
-                <div class="card-header bg-info text-white">
-                    <h5 class="mb-0"><i class="bi bi-bar-chart"></i> Latency Distribution Histograms</h5>
+                <div class="card-header bg-info text-white" data-bs-toggle="collapse" data-bs-target="#collapseHistograms" style="cursor: pointer;">
+                    <h5 class="mb-0"><i class="bi bi-bar-chart"></i> Latency Distribution Histograms <i class="bi bi-chevron-down float-end"></i></h5>
                 </div>
+                <div id="collapseHistograms" class="collapse show">
                 <div class="card-body">
                     <div class="row">
                         <div class="col-md-6 mb-4">
@@ -224,13 +231,15 @@
                         </div>
                     </div>
                 </div>
+                </div>
             </div>
 
             <!-- Legend -->
             <div class="card mb-4">
-                <div class="card-header">
-                    <h5 class="mb-0"><i class="bi bi-info-circle"></i> Latency Metrics Explained</h5>
+                <div class="card-header" data-bs-toggle="collapse" data-bs-target="#collapseLegend" style="cursor: pointer;">
+                    <h5 class="mb-0"><i class="bi bi-info-circle"></i> Latency Metrics Explained <i class="bi bi-chevron-down float-end"></i></h5>
                 </div>
+                <div id="collapseLegend" class="collapse show">
                 <div class="card-body">
                     <div class="row">
                         <div class="col-md-6">
@@ -250,6 +259,7 @@
                             </ul>
                         </div>
                     </div>
+                </div>
                 </div>
             </div>
         </div>
@@ -271,13 +281,16 @@
                         percentiles: {},
                         total_samples: 0
                     },
-                    refreshInterval: null,
-                    charts: {
-                        totalLatency: null,
-                        decodeLatency: null,
-                        queueLatency: null,
-                        processingLatency: null
-                    }
+                    refreshInterval: null
+                };
+            },
+            created() {
+                // Store charts outside of reactive data to prevent Vue proxy issues
+                this.charts = {
+                    totalLatency: null,
+                    decodeLatency: null,
+                    queueLatency: null,
+                    processingLatency: null
                 };
             },
             mounted() {
@@ -402,7 +415,7 @@
                     // Calculate histogram bins
                     const min = Math.min(...validValues);
                     const max = Math.max(...validValues);
-                    const binCount = Math.min(20, Math.ceil(Math.sqrt(validValues.length)));
+                    const binCount = Math.min(50, Math.max(20, Math.ceil(Math.sqrt(validValues.length) * 2)));
                     const binSize = (max - min) / binCount || 1;
 
                     const bins = Array(binCount).fill(0);
@@ -439,6 +452,7 @@
                 },
 
                 updateHistograms() {
+                    console.log('[Histograms] updateHistograms called, recent count:', this.audioStats.recent?.length);
                     if (!this.audioStats.recent || this.audioStats.recent.length === 0) {
                         this.destroyCharts();
                         return;
@@ -449,6 +463,8 @@
                     const decodeLatencies = this.audioStats.recent.map(s => s.decode_latency).filter(v => v != null);
                     const queueLatencies = this.audioStats.recent.map(s => s.queue_latency).filter(v => v != null);
                     const processingLatencies = this.audioStats.recent.map(s => s.processing_latency).filter(v => v != null);
+
+                    console.log('[Histograms] Latency counts - total:', totalLatencies.length, 'decode:', decodeLatencies.length, 'queue:', queueLatencies.length, 'processing:', processingLatencies.length);
 
                     // Update or create charts
                     this.updateChart('totalLatency', totalLatencies, 'Total Latency (ms)');
@@ -461,27 +477,32 @@
                     const refKey = chartKey + 'Chart';
                     const canvas = this.$refs[refKey];
                     
-                    if (!canvas) return;
+                    console.log('[Chart]', chartKey, '- canvas exists:', !!canvas, 'chart exists:', !!this.charts[chartKey], 'values:', values.length);
+                    
+                    if (!canvas) {
+                        console.warn('[Chart]', chartKey, '- canvas ref not found');
+                        return;
+                    }
 
                     const histogramData = this.createHistogramData(values, label);
                     
                     if (this.charts[chartKey]) {
-                        // Update existing chart
-                        this.charts[chartKey].data = histogramData;
-                        this.charts[chartKey].options.scales.y.ticks.color = histogramData.textColor;
-                        this.charts[chartKey].options.scales.x.ticks.color = histogramData.textColor;
-                        this.charts[chartKey].options.scales.y.grid.color = histogramData.gridColor;
-                        this.charts[chartKey].options.scales.x.grid.color = histogramData.gridColor;
-                        this.charts[chartKey].options.plugins.legend.labels.color = histogramData.textColor;
-                        this.charts[chartKey].update();
+                        // Update existing chart - only update data, not options
+                        console.log('[Chart]', chartKey, '- updating existing chart');
+                        const chart = this.charts[chartKey];
+                        chart.data.labels = histogramData.labels;
+                        chart.data.datasets[0].data = histogramData.datasets[0].data;
+                        chart.update('none'); // Use 'none' to skip animation
                     } else {
                         // Create new chart
+                        console.log('[Chart]', chartKey, '- creating new chart');
                         this.charts[chartKey] = new Chart(canvas, {
                             type: 'bar',
                             data: histogramData,
                             options: {
                                 responsive: true,
                                 maintainAspectRatio: true,
+                                animation: false, // Disable animation for updates
                                 plugins: {
                                     legend: {
                                         display: false,
