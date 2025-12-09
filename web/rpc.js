@@ -156,8 +156,9 @@ function saveUsername() {
 
 function loadUsername() {
     const username = getCookie('soundboard_username');
-    if (username) {
-        document.getElementById('username').value = username;
+    const usernameElement = document.getElementById('username');
+    if (username && usernameElement) {
+        usernameElement.value = username;
     }
 }
 
