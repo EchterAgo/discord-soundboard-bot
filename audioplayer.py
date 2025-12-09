@@ -124,9 +124,9 @@ class UserAudioStream:
         args = [
             "ffmpeg",
             "-thread_queue_size",
-            "512",  # Force separate input thread, prevent packet drops in low-latency scenarios
+            "1024",  # Larger queue to prevent packet drops
             "-fflags",
-            "+discardcorrupt",  # Only discard corrupt frames, keep buffering for accurate decoding
+            "+genpts+discardcorrupt",  # Generate PTS for smoother playback, discard corrupt frames
             "-i",
             str(self.filepath),
             "-progress",
@@ -229,7 +229,9 @@ class UserAudioStream:
                 "-ac",
                 "2",
                 "-bufsize",
-                "16k",  # TEST 2: Reduced buffer for lower latency (was 64k)
+                "256k",  # Large buffer for smooth streaming
+                "-flush_packets",
+                "0",  # Don't flush packets immediately, buffer for smoother output
                 "-loglevel",
                 "warning",
                 "pipe:1",
@@ -240,7 +242,7 @@ class UserAudioStream:
                 args,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL,  # Prevent stderr buffer from blocking FFmpeg
-                bufsize=0,  # Unbuffered
+                bufsize=65536,  # 64KB pipe buffer for smoother reads
                 pass_fds=(progress_w,),
             )
             # Close write end in parent, keep read end
@@ -305,6 +307,7 @@ class UserAudioStream:
             return b""
 
         try:
+            # Use blocking read - FFmpeg's buffering will keep this smooth
             data = self.process.stdout.read(size)
             if not data:
                 self.finished = True
@@ -417,50 +420,52 @@ class MixedAudioSource(discord.AudioSource):
         if self._finished:
             return b""
 
-        with self.lock:
-            # Read from all streams
-            chunk_size = 3840  # 20ms at 48kHz stereo 16-bit
+        chunk_size = 3840  # 20ms at 48kHz stereo 16-bit
 
+        # Read from all streams OUTSIDE the lock to avoid blocking
+        streams_snapshot = {}
+        with self.lock:
             if not self.streams:
                 # No streams yet, but we're not finished - return silence to keep playing
                 return b"\x00" * chunk_size
+            # Make a shallow copy of the streams dict for reading
+            streams_snapshot = dict(self.streams)
 
-            mixed_audio = None
-            active_streams = []
+        # Read audio data from all streams without holding the lock
+        stream_data = {}
+        for user_id, stream in streams_snapshot.items():
+            if not stream.finished:
+                data = stream.read(chunk_size)
+                if data and len(data) > 0:
+                    stream_data[user_id] = data
+                else:
+                    # Mark finished
+                    stream.finished = True
 
+        # Now acquire lock only for mixing and cleanup
+        with self.lock:
+            # Pre-allocate buffer for better performance
+            mixed_audio = bytearray(chunk_size)
+            has_audio = False
+
+            for user_id, data in stream_data.items():
+                # Mix audio
+                if not has_audio:
+                    # First stream - copy directly
+                    data_len = min(len(data), chunk_size)
+                    mixed_audio[:data_len] = data[:data_len]
+                    has_audio = True
+                else:
+                    # Subsequent streams - mix in
+                    data_len = min(len(data), chunk_size)
+                    mixed_audio[:data_len] = audioop.add(bytes(mixed_audio[:data_len]), data[:data_len], 2)
+
+            # Clean up finished streams
             for user_id, stream in list(self.streams.items()):
                 if stream.finished:
                     stream.cleanup()
                     del self.streams[user_id]
-                    # Signal that a stream finished (no callback from audio thread)
-                    if self.stream_finished_event:
-                        try:
-                            # Use call_soon_threadsafe since we're in a thread
-                            if self.event_loop:
-                                self.event_loop.call_soon_threadsafe(self.stream_finished_event.set)
-                            else:
-                                _log.debug("No event loop available to signal stream finished")
-                        except Exception as e:
-                            _log.debug(f"Could not signal stream finished: {e}")
-                    continue
-
-                data = stream.read(chunk_size)
-                if data:
-                    active_streams.append((user_id, stream.user_name))
-                    # Mix audio
-                    if mixed_audio is None:
-                        mixed_audio = bytearray(data)
-                    else:
-                        # Ensure both buffers are the same length
-                        min_len = min(len(mixed_audio), len(data))
-                        # Mix using audioop
-                        mixed_audio[:min_len] = audioop.add(bytes(mixed_audio[:min_len]), data[:min_len], 2)
-                else:
-                    # No more data - stream is finished
-                    stream.finished = True
-                    stream.cleanup()
-                    del self.streams[user_id]
-                    _log.info(f"Stream finished for {stream.user_name} (ID: {user_id}) - no more data")
+                    _log.info(f"Stream finished for {stream.user_name} (ID: {user_id})")
                     # Signal that a stream finished (no callback from audio thread)
                     if self.stream_finished_event:
                         try:
@@ -471,16 +476,14 @@ class MixedAudioSource(discord.AudioSource):
                             pass
 
             # If no active streams, return silence to keep playing
-            if mixed_audio is None:
+            if not has_audio:
                 # Don't set _finished here - let the queue processor control when to stop
                 # Just return silence while waiting for new streams
-                return b"\x00" * chunk_size
+                # Buffer is already zeroed from bytearray initialization
+                pass
 
-            # Pad if necessary
-            if len(mixed_audio) < chunk_size:
-                mixed_audio.extend(b"\x00" * (chunk_size - len(mixed_audio)))
-
-            return bytes(mixed_audio[:chunk_size])
+            # Buffer is pre-allocated to chunk_size, no padding needed
+            return bytes(mixed_audio)
 
     def cleanup(self):
         """Clean up all streams"""
@@ -787,8 +790,8 @@ class AudioPlayer(commands.Cog):
             voice_client.play(
                 self.mixed_source,
                 after=lambda e: self._on_playback_done(e),
-                application="lowdelay",
-                bitrate=128,
+                application="audio",  # Use 'audio' mode for best quality (not lowdelay)
+                bitrate=256,  # Maximum bitrate for best quality
                 fec=True,
             )
 
@@ -829,8 +832,8 @@ class AudioPlayer(commands.Cog):
                                 self.current_voice_client.play(
                                     self.mixed_source,
                                     after=lambda e: self._on_playback_done(e),
-                                    application="lowdelay",  # TEST 1: Low-delay opus encoder
-                                    bitrate=128,
+                                    application="audio",  # Use 'audio' mode for best quality
+                                    bitrate=256,
                                     fec=True,
                                 )
                                 _log.info("Restarted voice client playback")

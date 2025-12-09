@@ -5,6 +5,7 @@ import time
 import json
 import asyncio
 import socket
+import math
 from typing import Dict
 
 import aiohttp
@@ -217,8 +218,10 @@ def _build_queue_status(audio_player, guild):
     if guild.voice_client is not None:
         try:
             # average_latency is in seconds, convert to ms and round to 1 decimal
-            latency_ms = round(guild.voice_client.average_latency * 1000, 1)
-            status["average_latency"] = latency_ms
+            latency_ms = guild.voice_client.average_latency * 1000
+            # Only set if finite (not inf or nan)
+            if math.isfinite(latency_ms):
+                status["average_latency"] = round(latency_ms, 1)
         except Exception:
             pass
 
