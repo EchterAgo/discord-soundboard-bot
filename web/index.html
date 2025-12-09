@@ -59,6 +59,10 @@
                         title="Queue Status (Press Q)" aria-label="Toggle queue status" tabindex="0">
                         <i class="bi bi-list-ul"></i>
                     </button>
+                    <a href="debug.html" class="btn btn-sm btn-outline-light" target="_blank"
+                        title="Audio Stats (Press D)" aria-label="Open debug stats">
+                        <i class="bi bi-graph-up"></i>
+                    </a>
                     <button class="btn btn-sm btn-outline-light" @click="toggleFullscreen"
                         title="Toggle Fullscreen (Press F)" aria-label="Toggle fullscreen" tabindex="0">
                         <i class="bi" :class="isFullscreen ? 'bi-fullscreen-exit' : 'bi-fullscreen'"></i>
@@ -306,6 +310,7 @@
                                         <li><strong>Escape:</strong> Close modals and dropdowns</li>
                                         <li><strong>?:</strong> Toggle this help panel</li>
                                         <li><strong>S:</strong> Toggle settings panel</li>
+                                        <li><strong>D:</strong> Open debug stats in new window</li>
                                         <li><strong>U:</strong> Toggle connected users panel</li>
                                         <li><strong>Q:</strong> Toggle queue status panel</li>
                                         <li><strong>F:</strong> Toggle fullscreen mode</li>
@@ -365,98 +370,104 @@
 
                     <!-- Sticky Navigation Bar -->
                     <div class="sticky-top bg-body" style="z-index: 1020; padding-top: 1rem;">
-                    <!-- View Selection -->
-                    <div class="row mb-3">
-                        <div class="col-12">
-                            <div class="btn-group w-100" role="group" aria-label="View selection">
-                                <button class="btn"
-                                    :class="activeView === 'buttons' ? 'btn-primary' : 'btn-outline-primary'"
-                                    @click="activeView = 'buttons'" tabindex="0"
-                                    aria-label="Custom Buttons view (Press 1)" :aria-pressed="activeView === 'buttons'">
-                                    <i class="bi bi-grid-3x3"></i> Custom Buttons
-                                </button>
-                                <button class="btn"
-                                    :class="activeView === 'recent' ? 'btn-primary' : 'btn-outline-primary'"
-                                    @click="activeView = 'recent'" tabindex="0"
-                                    aria-label="Recent sounds view (Press 2)" :aria-pressed="activeView === 'recent'">
-                                    <i class="bi bi-clock-history"></i> Recent
-                                </button>
-                                <button class="btn"
-                                    :class="activeView === 'all' ? 'btn-primary' : 'btn-outline-primary'"
-                                    @click="activeView = 'all'" tabindex="0" aria-label="All sounds view (Press 3)"
-                                    :aria-pressed="activeView === 'all'">
-                                    <i class="bi bi-collection"></i> All Sounds
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Quick Search -->
-                    <div class="row mb-3">
-                        <div class="col-md-8">
-                            <div class="input-group position-relative">
-                                <span class="input-group-text"><i class="bi bi-search"></i></span>
-                                <input type="text" ref="searchInput" v-model="searchQuery" class="form-control"
-                                    placeholder="Type to search sounds..." autocomplete="off"
-                                    aria-label="Search for sounds" tabindex="0"
-                                    @focus="showSearchDropdown = true; selectedSearchIndex = -1"
-                                    @blur="handleSearchBlur"
-                                    @input="showSearchDropdown = true; selectedSearchIndex = -1"
-                                    @keydown="handleSearchKeydown">
-                                <div v-if="showSearchDropdown" class="search-dropdown" @click.stop>
-                                    <div class="search-dropdown-item"
-                                        v-for="(sound, index) in filteredSounds.slice(0, 100)" :key="sound"
-                                        :class="{ 'selected': index === selectedSearchIndex }"
-                                        @mousedown.prevent="selectSearchSound(sound); playSearchResult()"
-                                        @mouseenter="selectedSearchIndex = index">
-                                        {{ sound }}
-                                    </div>
-                                    <div v-if="filteredSounds.length === 0" class="search-dropdown-item text-muted">
-                                        No sounds found
-                                    </div>
-                                    <div v-if="filteredSounds.length > 100"
-                                        class="search-dropdown-item text-muted small">
-                                        Showing first 100 results. Type to filter more.
-                                    </div>
+                        <!-- View Selection -->
+                        <div class="row mb-3">
+                            <div class="col-12">
+                                <div class="btn-group w-100" role="group" aria-label="View selection">
+                                    <button class="btn"
+                                        :class="activeView === 'buttons' ? 'btn-primary' : 'btn-outline-primary'"
+                                        @click="activeView = 'buttons'" tabindex="0"
+                                        aria-label="Custom Buttons view (Press 1)"
+                                        :aria-pressed="activeView === 'buttons'">
+                                        <i class="bi bi-grid-3x3"></i> Custom Buttons
+                                    </button>
+                                    <button class="btn"
+                                        :class="activeView === 'recent' ? 'btn-primary' : 'btn-outline-primary'"
+                                        @click="activeView = 'recent'" tabindex="0"
+                                        aria-label="Recent sounds view (Press 2)"
+                                        :aria-pressed="activeView === 'recent'">
+                                        <i class="bi bi-clock-history"></i> Recent
+                                    </button>
+                                    <button class="btn"
+                                        :class="activeView === 'all' ? 'btn-primary' : 'btn-outline-primary'"
+                                        @click="activeView = 'all'" tabindex="0" aria-label="All sounds view (Press 3)"
+                                        :aria-pressed="activeView === 'all'">
+                                        <i class="bi bi-collection"></i> All Sounds
+                                    </button>
                                 </div>
-                                <button class="btn btn-primary" @click="playSearchResult"
-                                    @keydown.enter.space.prevent="playSearchResult" tabindex="0"
-                                    aria-label="Play selected sound">Play</button>
-                                <button class="btn btn-warning" @click="skipCurrent"
-                                    @keydown.enter.space.prevent="skipCurrent" tabindex="0"
-                                    aria-label="Skip current sound" title="Skip the currently playing sound">
-                                    <i class="bi bi-skip-forward-fill"></i> Skip
-                                </button>
-                                <button class="btn btn-danger" @click="stopPlayback"
-                                    @keydown.enter.space.prevent="stopPlayback" tabindex="0"
-                                    aria-label="Stop playback">Stop</button>
                             </div>
                         </div>
-                        <div class="col-md-4">
-                            <div v-if="activeView === 'buttons'" class="d-flex gap-2">
-                                <button class="btn btn-success flex-fill" @click="addNewButton" tabindex="0"
-                                    aria-label="Add new button">
-                                    <i class="bi bi-plus-circle"></i> Add Button
-                                </button>
-                                <button class="btn flex-fill"
-                                    :class="editMode ? 'btn-warning' : 'btn-outline-secondary'" @click="toggleEditMode"
-                                    tabindex="0" :aria-label="editMode ? 'Exit edit mode' : 'Enter edit mode'">
-                                    <i class="bi" :class="editMode ? 'bi-lock-fill' : 'bi-unlock'"></i> {{ editMode ?
-                                    'Done' :
-                                    'Edit' }}
-                                </button>
+
+                        <!-- Quick Search -->
+                        <div class="row mb-3">
+                            <div class="col-md-8">
+                                <div class="input-group position-relative">
+                                    <span class="input-group-text"><i class="bi bi-search"></i></span>
+                                    <input type="text" ref="searchInput" v-model="searchQuery" class="form-control"
+                                        placeholder="Type to search sounds..." autocomplete="off"
+                                        aria-label="Search for sounds" tabindex="0"
+                                        @focus="showSearchDropdown = true; selectedSearchIndex = -1"
+                                        @blur="handleSearchBlur"
+                                        @input="showSearchDropdown = true; selectedSearchIndex = -1"
+                                        @keydown="handleSearchKeydown">
+                                    <div v-if="showSearchDropdown" class="search-dropdown" @click.stop>
+                                        <div class="search-dropdown-item"
+                                            v-for="(sound, index) in filteredSounds.slice(0, 100)" :key="sound"
+                                            :class="{ 'selected': index === selectedSearchIndex }"
+                                            @mousedown.prevent="selectSearchSound(sound); playSearchResult()"
+                                            @mouseenter="selectedSearchIndex = index">
+                                            {{ sound }}
+                                        </div>
+                                        <div v-if="filteredSounds.length === 0" class="search-dropdown-item text-muted">
+                                            No sounds found
+                                        </div>
+                                        <div v-if="filteredSounds.length > 100"
+                                            class="search-dropdown-item text-muted small">
+                                            Showing first 100 results. Type to filter more.
+                                        </div>
+                                    </div>
+                                    <button class="btn btn-primary" @click="playSearchResult"
+                                        @keydown.enter.space.prevent="playSearchResult" tabindex="0"
+                                        aria-label="Play selected sound">Play</button>
+                                    <button class="btn btn-warning" @click="skipCurrent"
+                                        @keydown.enter.space.prevent="skipCurrent" tabindex="0"
+                                        aria-label="Skip current sound" title="Skip the currently playing sound">
+                                        <i class="bi bi-skip-forward-fill"></i> Skip
+                                    </button>
+                                    <button class="btn btn-danger" @click="stopPlayback"
+                                        @keydown.enter.space.prevent="stopPlayback" tabindex="0"
+                                        aria-label="Stop playback">Stop</button>
+                                </div>
                             </div>
-                            <div v-if="activeView === 'recent'" class="d-flex gap-2">
-                                <button class="btn flex-fill"
-                                    :class="editMode ? 'btn-warning' : 'btn-outline-secondary'" @click="toggleEditMode"
-                                    tabindex="0" :aria-label="editMode ? 'Exit edit mode' : 'Enter edit mode'">
-                                    <i class="bi" :class="editMode ? 'bi-lock-fill' : 'bi-unlock'"></i> {{ editMode ?
-                                    'Done' :
-                                    'Edit' }}
-                                </button>
+                            <div class="col-md-4">
+                                <div v-if="activeView === 'buttons'" class="d-flex gap-2">
+                                    <button class="btn btn-success flex-fill" @click="addNewButton" tabindex="0"
+                                        aria-label="Add new button">
+                                        <i class="bi bi-plus-circle"></i> Add Button
+                                    </button>
+                                    <button class="btn flex-fill"
+                                        :class="editMode ? 'btn-warning' : 'btn-outline-secondary'"
+                                        @click="toggleEditMode" tabindex="0"
+                                        :aria-label="editMode ? 'Exit edit mode' : 'Enter edit mode'">
+                                        <i class="bi" :class="editMode ? 'bi-lock-fill' : 'bi-unlock'"></i> {{ editMode
+                                        ?
+                                        'Done' :
+                                        'Edit' }}
+                                    </button>
+                                </div>
+                                <div v-if="activeView === 'recent'" class="d-flex gap-2">
+                                    <button class="btn flex-fill"
+                                        :class="editMode ? 'btn-warning' : 'btn-outline-secondary'"
+                                        @click="toggleEditMode" tabindex="0"
+                                        :aria-label="editMode ? 'Exit edit mode' : 'Enter edit mode'">
+                                        <i class="bi" :class="editMode ? 'bi-lock-fill' : 'bi-unlock'"></i> {{ editMode
+                                        ?
+                                        'Done' :
+                                        'Edit' }}
+                                    </button>
+                                </div>
                             </div>
                         </div>
-                    </div>
                     </div>
                     <!-- End Sticky Navigation Bar -->
 

@@ -17,6 +17,7 @@ from utils import caseless_in, find_files
 from observable import ObservableDeque, ObservableDict, ObservableDequeDict
 from typing import Callable, Iterator, Optional, Dict
 import audioop
+from audio_stats import audio_stats
 
 _log = logging.getLogger(__name__)
 
@@ -235,11 +236,14 @@ class UserAudioStream:
                 args,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL,  # Prevent stderr buffer from blocking FFmpeg
-                bufsize=4096,  # Small buffer to reduce latency (default is much larger)
+                bufsize=0,  # Unbuffered
                 pass_fds=(progress_w,),
             )
             # Close write end in parent, keep read end
             os.close(progress_w)
+
+            # Track stream start for stats
+            audio_stats.mark_stream_start(self.user_id)
 
             # Start thread to read progress updates
             self.progress_thread = threading.Thread(target=self._read_progress, args=(progress_r,), daemon=True)
@@ -305,6 +309,7 @@ class UserAudioStream:
                 # Track first byte latency
                 if self.first_byte_timestamp is None:
                     self.first_byte_timestamp = time.time()
+                    audio_stats.mark_first_byte(self.user_id)
                     if self.request_timestamp is not None:
                         latency_ms = (self.first_byte_timestamp - self.request_timestamp) * 1000
                         _log.info(
@@ -331,6 +336,9 @@ class UserAudioStream:
 
     def cleanup(self):
         """Clean up the FFmpeg process"""
+        # Track stream end for stats
+        audio_stats.mark_stream_end(self.user_id)
+
         # Stop progress thread
         self.progress_stop_event.set()
         if self.progress_thread and self.progress_thread.is_alive():
@@ -648,19 +656,37 @@ class AudioPlayer(commands.Cog):
                 # Stop the user's current stream in the mixer (if any)
                 self._stop_user_stream(user_id, user_name)
                 _log.info(f"{user_name} (ID: {user_id}) interrupted their own stream")
+
+                # Track request start for stats AFTER stopping old stream
+                if request_timestamp is None:
+                    request_timestamp = audio_stats.start_request(user_id, user_name, str(filename))
+                else:
+                    audio_stats.start_request(user_id, user_name, str(filename), request_timestamp)
+                item.request_timestamp = request_timestamp
+
                 # Add to front of queue to play immediately
                 self.user_queues[user_id].appendleft(item)
+                audio_stats.mark_queued(user_id)
                 _log.info(f"{user_name} (ID: {user_id}) queued '{query}' for instant playback")
                 # Signal the processor to check for new work
                 if self.stream_finished_event:
                     self.stream_finished_event.set()
             else:
+                # Track request start for stats for non-interrupt case
+                if request_timestamp is None:
+                    request_timestamp = audio_stats.start_request(user_id, user_name, str(filename))
+                else:
+                    audio_stats.start_request(user_id, user_name, str(filename), request_timestamp)
+                item.request_timestamp = request_timestamp
+
                 # Add to user's queue
                 if play_next and len(self.user_queues[user_id]) > 0:
                     self.user_queues[user_id].appendleft(item)
+                    audio_stats.mark_queued(user_id)
                     _log.info(f"{user_name} (ID: {user_id}) queued '{query}' to play next in their queue")
                 else:
                     self.user_queues[user_id].append(item)
+                    audio_stats.mark_queued(user_id)
                     user_pos = len(self.user_queues[user_id])
                     total_queued = self._get_total_queue_size()
                     _log.info(

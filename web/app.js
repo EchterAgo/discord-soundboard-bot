@@ -1626,6 +1626,12 @@ createApp({
                 this.toggleQueue();
             }
 
+            // D for debug stats
+            if (e.key === 'd' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+                e.preventDefault();
+                window.open('debug.html', '_blank');
+            }
+
             // U for users
             if (e.key === 'u' && !e.ctrlKey && !e.metaKey && !e.altKey) {
                 e.preventDefault();

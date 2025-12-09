@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Audio Pipeline Debug Stats</title>
+
+    <!-- Favicon -->
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
+
+    <!-- Vue.js 3 -->
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+
+    <!-- Bootstrap 5 -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+    <!-- Bootstrap Icons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
+
+    <link href="style-vue.css" rel="stylesheet">
+</head>
+
+<body :data-bs-theme="theme">
+    <div id="app">
+        <!-- Header -->
+        <nav class="navbar navbar-dark bg-dark mb-3">
+            <div class="container-fluid">
+                <span class="navbar-brand mb-0 h1">
+                    <i class="bi bi-graph-up"></i> Audio Pipeline Debug Stats
+                </span>
+                <div class="d-flex align-items-center gap-2">
+                    <span class="badge bg-secondary">Auto-refresh: {{ autoRefresh ? 'ON' : 'OFF' }}</span>
+                    <button class="btn btn-sm btn-outline-light" @click="toggleAutoRefresh">
+                        <i class="bi" :class="autoRefresh ? 'bi-pause-fill' : 'bi-play-fill'"></i>
+                    </button>
+                    <button class="btn btn-sm btn-outline-light" @click="refreshAudioStats">
+                        <i class="bi bi-arrow-clockwise"></i> Refresh
+                    </button>
+                    <button class="btn btn-sm btn-outline-danger" @click="clearAudioStats">
+                        <i class="bi bi-trash"></i> Clear
+                    </button>
+                    <button class="btn btn-sm btn-outline-light" @click="toggleTheme">
+                        <i class="bi" :class="theme === 'dark' ? 'bi-sun-fill' : 'bi-moon-fill'"></i>
+                    </button>
+                    <a href="index.html" class="btn btn-sm btn-outline-light">
+                        <i class="bi bi-arrow-left"></i> Back to Soundboard
+                    </a>
+                </div>
+            </div>
+        </nav>
+
+        <div class="container-fluid">
+            <!-- Summary Stats -->
+            <div class="row g-3 mb-4" v-if="audioStats.averages && Object.keys(audioStats.averages).length > 0">
+                <div class="col-md-3">
+                    <div class="card bg-primary text-white">
+                        <div class="card-body p-3">
+                            <h6 class="card-title mb-1">Avg Total Latency</h6>
+                            <h3 class="mb-0">{{ audioStats.averages.total || 'N/A' }} <small>ms</small></h3>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card bg-info text-white">
+                        <div class="card-body p-3">
+                            <h6 class="card-title mb-1">Avg Decode Time</h6>
+                            <h3 class="mb-0">{{ audioStats.averages.decode || 'N/A' }} <small>ms</small></h3>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card bg-success text-white">
+                        <div class="card-body p-3">
+                            <h6 class="card-title mb-1">P95 Total</h6>
+                            <h3 class="mb-0">{{ audioStats.percentiles?.total?.p95 || 'N/A' }} <small>ms</small></h3>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card bg-secondary text-white">
+                        <div class="card-body p-3">
+                            <h6 class="card-title mb-1">Total Samples</h6>
+                            <h3 class="mb-0">{{ audioStats.total_samples || 0 }}</h3>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Active Streams -->
+            <div v-if="audioStats.active && audioStats.active.length > 0" class="card mb-4">
+                <div class="card-header bg-warning text-dark">
+                    <h5 class="mb-0"><i class="bi bi-activity"></i> Active Streams</h5>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-sm table-striped">
+                            <thead>
+                                <tr>
+                                    <th>User</th>
+                                    <th>File</th>
+                                    <th>Request Time</th>
+                                    <th>Partial Stats</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr v-for="stat in audioStats.active" :key="stat.user_id">
+                                    <td>{{ stat.user_name }}</td>
+                                    <td class="text-truncate" style="max-width: 200px;" :title="stat.filepath">{{
+                                        stat.filepath }}</td>
+                                    <td>{{ formatTimestamp(stat.request_timestamp) }}</td>
+                                    <td>
+                                        <span v-if="stat.total_latency" class="badge"
+                                            :class="getLatencyBadgeClass(stat.total_latency)">
+                                            {{ stat.total_latency }} ms
+                                        </span>
+                                        <span v-else class="text-muted">In progress...</span>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Recent Stats -->
+            <div v-if="audioStats.recent && audioStats.recent.length > 0" class="card mb-4">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0"><i class="bi bi-clock-history"></i> Recent Playbacks</h5>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-sm table-hover">
+                            <thead>
+                                <tr>
+                                    <th>User</th>
+                                    <th>File</th>
+                                    <th>Total</th>
+                                    <th>Queue</th>
+                                    <th>Processing</th>
+                                    <th>Decode</th>
+                                    <th>Duration</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr v-for="(stat, index) in audioStats.recent" :key="index">
+                                    <td>{{ stat.user_name }}</td>
+                                    <td class="text-truncate" style="max-width: 150px;" :title="stat.filepath">{{
+                                        stat.filepath }}</td>
+                                    <td><span class="badge" :class="getLatencyBadgeClass(stat.total_latency)">{{
+                                            stat.total_latency || 'N/A' }} ms</span></td>
+                                    <td>{{ stat.queue_latency || 'N/A' }} ms</td>
+                                    <td>{{ stat.processing_latency || 'N/A' }} ms</td>
+                                    <td>{{ stat.decode_latency || 'N/A' }} ms</td>
+                                    <td>{{ stat.playback_duration || 'N/A' }} ms</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <div v-if="!audioStats.recent || audioStats.recent.length === 0" class="alert alert-info text-center">
+                <i class="bi bi-info-circle"></i> No statistics available yet. Play some sounds to see latency data.
+            </div>
+
+            <!-- Percentiles Detail -->
+            <div v-if="audioStats.percentiles && Object.keys(audioStats.percentiles).length > 0" class="card mb-4">
+                <div class="card-header bg-success text-white">
+                    <h5 class="mb-0"><i class="bi bi-bar-chart-line"></i> Percentile Details</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6" v-if="audioStats.percentiles.total">
+                            <h6>Total Latency Percentiles</h6>
+                            <ul class="list-unstyled">
+                                <li><strong>P50 (Median):</strong> {{ audioStats.percentiles.total.p50 || 'N/A' }} ms
+                                </li>
+                                <li><strong>P95:</strong> {{ audioStats.percentiles.total.p95 || 'N/A' }} ms</li>
+                                <li><strong>P99:</strong> {{ audioStats.percentiles.total.p99 || 'N/A' }} ms</li>
+                            </ul>
+                        </div>
+                        <div class="col-md-6" v-if="audioStats.percentiles.decode">
+                            <h6>Decode Latency Percentiles</h6>
+                            <ul class="list-unstyled">
+                                <li><strong>P50 (Median):</strong> {{ audioStats.percentiles.decode.p50 || 'N/A' }} ms
+                                </li>
+                                <li><strong>P95:</strong> {{ audioStats.percentiles.decode.p95 || 'N/A' }} ms</li>
+                                <li><strong>P99:</strong> {{ audioStats.percentiles.decode.p99 || 'N/A' }} ms</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Legend -->
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5 class="mb-0"><i class="bi bi-info-circle"></i> Latency Metrics Explained</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <ul class="small">
+                                <li><strong>Total:</strong> Time from button press to first audio byte decoded</li>
+                                <li><strong>Queue:</strong> Time from request to being added to queue</li>
+                                <li><strong>Processing:</strong> Time from queue to FFmpeg stream start</li>
+                            </ul>
+                        </div>
+                        <div class="col-md-6">
+                            <ul class="small">
+                                <li><strong>Decode:</strong> Time from FFmpeg start to first byte output</li>
+                                <li><strong>Duration:</strong> Total playback time</li>
+                                <li><strong>Latency Badges:</strong> <span class="badge bg-success">
+                                        < 100ms</span> <span class="badge bg-warning">100-300ms</span> <span
+                                                class="badge bg-danger">> 300ms</span></li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="rpc.js"></script>
+    <script>
+        const { createApp } = Vue;
+
+        createApp({
+            data() {
+                return {
+                    theme: localStorage.getItem('theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'),
+                    autoRefresh: true,
+                    audioStats: {
+                        recent: [],
+                        active: [],
+                        averages: {},
+                        percentiles: {},
+                        total_samples: 0
+                    },
+                    refreshInterval: null
+                };
+            },
+            mounted() {
+                document.body.setAttribute('data-bs-theme', this.theme);
+
+                // Initialize WebSocket connection
+                initWebSocket();
+
+                // Wait a bit for WebSocket to connect, then start fetching
+                setTimeout(() => {
+                    this.refreshAudioStats();
+                    this.startAutoRefresh();
+                }, 500);
+            },
+            beforeUnmount() {
+                this.stopAutoRefresh();
+            },
+            methods: {
+                async refreshAudioStats() {
+                    try {
+                        const result = await jsonRpcCallWs('get_audio_stats', {});
+                        this.audioStats = result || {
+                            recent: [],
+                            active: [],
+                            averages: {},
+                            percentiles: {},
+                            total_samples: 0
+                        };
+                    } catch (error) {
+                        console.error('[Audio Stats] Failed to fetch audio stats:', error);
+                    }
+                },
+
+                async clearAudioStats() {
+                    if (!confirm('Are you sure you want to clear all audio statistics?')) {
+                        return;
+                    }
+                    try {
+                        await jsonRpcCallWs('clear_audio_stats', {});
+                        this.audioStats = {
+                            recent: [],
+                            active: [],
+                            averages: {},
+                            percentiles: {},
+                            total_samples: 0
+                        };
+                        console.log('[Audio Stats] Statistics cleared');
+                    } catch (error) {
+                        console.error('[Audio Stats] Failed to clear audio stats:', error);
+                    }
+                },
+
+                getLatencyBadgeClass(latency) {
+                    if (!latency) return 'bg-secondary';
+                    if (latency < 100) return 'bg-success';
+                    if (latency < 300) return 'bg-warning';
+                    return 'bg-danger';
+                },
+
+                formatTimestamp(timestamp) {
+                    if (!timestamp) return 'N/A';
+                    const date = new Date(timestamp * 1000);
+                    return date.toLocaleTimeString();
+                },
+
+                toggleAutoRefresh() {
+                    this.autoRefresh = !this.autoRefresh;
+                    if (this.autoRefresh) {
+                        this.startAutoRefresh();
+                    } else {
+                        this.stopAutoRefresh();
+                    }
+                },
+
+                startAutoRefresh() {
+                    if (this.refreshInterval) {
+                        clearInterval(this.refreshInterval);
+                    }
+                    this.refreshInterval = setInterval(() => {
+                        if (this.autoRefresh) {
+                            this.refreshAudioStats();
+                        }
+                    }, 2000);
+                },
+
+                stopAutoRefresh() {
+                    if (this.refreshInterval) {
+                        clearInterval(this.refreshInterval);
+                        this.refreshInterval = null;
+                    }
+                },
+
+                toggleTheme() {
+                    this.theme = this.theme === 'dark' ? 'light' : 'dark';
+                    localStorage.setItem('theme', this.theme);
+                    document.body.setAttribute('data-bs-theme', this.theme);
+                }
+            }
+        }).mount('#app');
+    </script>
+</body>
+
+</html>

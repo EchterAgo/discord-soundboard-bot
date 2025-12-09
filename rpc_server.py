@@ -5,8 +5,7 @@ import time
 import json
 import asyncio
 import socket
-from typing import Set, Dict
-from pathlib import Path
+from typing import Dict
 
 import aiohttp
 from discord.ext import commands
@@ -23,6 +22,7 @@ from watchdog.events import FileSystemEventHandler
 from utils import find_files
 from config import CONFIG_AUDIO_BASE_DIR
 import user_config
+from audio_stats import audio_stats
 
 
 _log = logging.getLogger(__name__)
@@ -696,6 +696,41 @@ async def jsonrpc_update_ping(context, ping_ms: int) -> Result:
     if ws and ws in websocket_connections:
         websocket_connections[ws]["ping_ms"] = max(0, int(ping_ms))
     return Success("Ping updated")
+
+
+@method(name="get_audio_stats")
+async def jsonrpc_get_audio_stats(context) -> Result:
+    """Get audio pipeline latency statistics.
+
+    Returns:
+        Success result containing:
+        - recent: List of recent playback stats
+        - active: Currently active streams
+        - averages: Average latency metrics
+        - percentiles: Percentile latency metrics
+        - total_samples: Total number of samples collected
+    """
+    try:
+        stats = audio_stats.get_summary()
+        return Success(stats)
+    except Exception as e:
+        _log.error(f"Failed to get audio stats: {e}", exc_info=True)
+        return Error(1, f"Failed to get audio stats: {str(e)}")
+
+
+@method(name="clear_audio_stats")
+async def jsonrpc_clear_audio_stats(context) -> Result:
+    """Clear all audio pipeline statistics.
+
+    Returns:
+        Success result
+    """
+    try:
+        audio_stats.clear()
+        return Success("Audio statistics cleared")
+    except Exception as e:
+        _log.error(f"Failed to clear audio stats: {e}", exc_info=True)
+        return Error(1, f"Failed to clear audio stats: {str(e)}")
 
 
 @method(name="register_user")
