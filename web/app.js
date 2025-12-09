@@ -46,14 +46,14 @@ function initWebSocket(onQueueUpdate, onFileListUpdate, onConfigUpdate, onConnec
     if (websocket && (websocket.readyState === WebSocket.CONNECTING || websocket.readyState === WebSocket.OPEN)) {
         return wsReadyPromise;
     }
-    
+
     // Create a new ready promise
     wsReadyPromise = new Promise((resolve) => {
         wsReadyResolve = resolve;
     });
-    
+
     websocket = new WebSocket(WS_URL);
-    
+
     websocket.onopen = () => {
         console.log('[WebSocket] Connected');
         if (wsReconnectTimer) {
@@ -70,25 +70,25 @@ function initWebSocket(onQueueUpdate, onFileListUpdate, onConfigUpdate, onConnec
             onConnected();
         }
     };
-    
+
     websocket.onmessage = (event) => {
         try {
             const data = JSON.parse(event.data);
-            
+
             // Handle pong responses to calculate RTT
             if (data.type === 'pong') {
                 const rtt = Date.now() - (window.lastPingTimestamp || Date.now());
                 // Send RTT back to server via RPC so other clients see it
                 if (websocket && websocket.readyState === WebSocket.OPEN) {
                     try {
-                        rpcCall('update_ping', { ping_ms: rtt }).catch(() => {});
+                        rpcCall('update_ping', { ping_ms: rtt }).catch(() => { });
                     } catch (e) {
                         // Silently ignore ping update failures
                     }
                 }
                 return; // Don't process as regular message
             }
-            
+
             // Handle queue updates
             if (data.type === 'queue_update') {
                 // Debug log to see active streams with progress
@@ -123,7 +123,7 @@ function initWebSocket(onQueueUpdate, onFileListUpdate, onConfigUpdate, onConnec
             else if (data.id && wsCallbacks.has(data.id)) {
                 const { resolve, reject } = wsCallbacks.get(data.id);
                 wsCallbacks.delete(data.id);
-                
+
                 if (data.error) {
                     reject(new Error(data.error.message || 'RPC Error'));
                 } else {
@@ -134,19 +134,19 @@ function initWebSocket(onQueueUpdate, onFileListUpdate, onConfigUpdate, onConnec
             console.error('[WebSocket] Error parsing message:', e);
         }
     };
-    
+
     websocket.onerror = (error) => {
         console.error('[WebSocket] Error:', error);
     };
-    
+
     websocket.onclose = () => {
         console.log('[WebSocket] Disconnected');
         websocket = null;
-        
+
         // Reset ready promise
         wsReadyPromise = null;
         wsReadyResolve = null;
-        
+
         // Reconnect after 2 seconds
         if (!wsReconnectTimer) {
             wsReconnectTimer = setTimeout(() => {
@@ -155,7 +155,7 @@ function initWebSocket(onQueueUpdate, onFileListUpdate, onConfigUpdate, onConnec
             }, 2000);
         }
     };
-    
+
     return wsReadyPromise;
 }
 
@@ -165,7 +165,7 @@ async function rpcCallWs(method, params = {}) {
             reject(new Error('WebSocket not connected'));
             return;
         }
-        
+
         const id = Date.now() + Math.random();
         const request = {
             jsonrpc: '2.0',
@@ -173,10 +173,10 @@ async function rpcCallWs(method, params = {}) {
             params: params,
             id: id
         };
-        
+
         wsCallbacks.set(id, { resolve, reject });
         websocket.send(JSON.stringify(request));
-        
+
         // Timeout after 10 seconds
         setTimeout(() => {
             if (wsCallbacks.has(id)) {
@@ -192,11 +192,11 @@ async function rpcCall(method, params = {}) {
     if (wsReadyPromise) {
         await wsReadyPromise;
     }
-    
+
     if (!websocket || websocket.readyState !== WebSocket.OPEN) {
         throw new Error('WebSocket not connected');
     }
-    
+
     return await rpcCallWs(method, params);
 }
 
@@ -294,13 +294,13 @@ createApp({
                 'material': this.materialIcons,
                 'semantic': this.semanticIcons
             }[this.iconLibrary] || [];
-            
+
             let filtered = icons;
             if (this.iconSearchQuery) {
                 const query = this.iconSearchQuery.toLowerCase();
                 filtered = icons.filter(icon => icon.name.toLowerCase().includes(query));
             }
-            
+
             // If currently editing a button with an icon, place it at the beginning
             let result = [];
             if (this.editingButton !== null && this.config.buttons[this.editingButton].icon) {
@@ -314,7 +314,7 @@ createApp({
             } else {
                 result = filtered;
             }
-            
+
             return result.slice(0, 200);
         },
         gridStyle() {
@@ -330,7 +330,7 @@ createApp({
                 queue: { label: 'Queue', icon: 'bi-list-ul', color: 'primary' },
                 next: { label: 'Play Next', icon: 'bi-skip-forward-fill', color: 'warning' }
             };
-            
+
             // Show effective mode based on modifier keys
             let effectiveMode = this.playMode;
             if (this.modifierKeys.ctrl && this.modifierKeys.shift) {
@@ -340,7 +340,7 @@ createApp({
             } else if (this.modifierKeys.shift) {
                 effectiveMode = 'queue';
             }
-            
+
             return modes[effectiveMode];
         },
         filteredSounds() {
@@ -380,7 +380,7 @@ createApp({
             ];
             const regularIcons = ['circle', 'square', 'heart', 'star', 'user', 'clock', 'calendar', 'comment', 'envelope', 'file', 'folder', 'bookmark', 'image', 'bell', 'lightbulb', 'moon', 'sun', 'flag', 'thumbs-up', 'thumbs-down'];
             const brandIcons = ['facebook', 'twitter', 'instagram', 'youtube', 'linkedin', 'github', 'discord', 'reddit', 'twitch', 'tiktok', 'spotify', 'apple', 'google', 'microsoft', 'amazon', 'paypal', 'stripe', 'steam', 'playstation', 'xbox', 'android', 'windows', 'linux'];
-            
+
             const icons = [
                 ...solidIcons.map(icon => ({ name: icon.replace(/-/g, ' ') + ' (solid)', class: 'fas fa-' + icon })),
                 ...regularIcons.map(icon => ({ name: icon.replace(/-/g, ' ') + ' (regular)', class: 'far fa-' + icon })),
@@ -417,11 +417,11 @@ createApp({
                   <path d="M 46 20 Q 52 26, 52 32 Q 52 38, 46 44" stroke="#FFFFFF" stroke-width="2.5" fill="none" stroke-linecap="round"/>
                 </svg>
             `;
-            
+
             // Convert SVG to data URL
             const svgBlob = new Blob([svg], { type: 'image/svg+xml' });
             const url = URL.createObjectURL(svgBlob);
-            
+
             // Update favicon
             let link = document.querySelector('link[rel="icon"]');
             if (!link) {
@@ -434,24 +434,24 @@ createApp({
         cleanSoundName(soundPath) {
             // Split the path into parts
             const parts = soundPath.split('/');
-            
+
             // Get the filename (last part)
             let filename = parts[parts.length - 1];
-            
+
             // Remove .sync-conflict-* suffixes (e.g., .sync-conflict-20231215-123456)
             filename = filename.replace(/\.sync-conflict-[0-9-]+/g, '');
-            
+
             // Remove common audio file extensions
             filename = filename.replace(/\.(mp3|wav|ogg|flac|m4a|aac|wma|opus)$/i, '');
-            
+
             // Put it back together with the folder path
             parts[parts.length - 1] = filename;
             return parts.join('/');
         },
-        
+
         truncateHostname(hostname) {
             if (!hostname) return '';
-            
+
             // Check if it's an IPv6 address (contains colons)
             if (hostname.includes(':')) {
                 // IPv6 address - show first and last segment
@@ -462,26 +462,26 @@ createApp({
                 // Show first::last
                 return `${parts[0]}:...:${parts[parts.length - 1]}`;
             }
-            
+
             // Check if it's an IPv4 address (only digits and dots, no letters)
             if (/^[\d.]+$/.test(hostname)) {
                 // IPv4 address - show as-is (already short)
                 return hostname;
             }
-            
+
             // Hostname - show last 2 DNS parts
             const parts = hostname.split('.');
-            
+
             // If 2 or fewer parts, show as-is
             if (parts.length <= 2) {
                 return hostname;
             }
-            
+
             // Show [...].lastTwoParts
             const lastTwo = parts.slice(-2).join('.');
             return `[...].${lastTwo}`;
         },
-        
+
         handleKeyDown(event) {
             if (event.key === 'Control') {
                 this.modifierKeys.ctrl = true;
@@ -489,14 +489,14 @@ createApp({
                 this.modifierKeys.shift = true;
             }
         },
-        
+
         handleButtonKeydown(event, sound, index) {
             console.log('handleButtonKeydown called:', event.key, 'sound:', sound, 'index:', index);
-            
+
             const isCustomView = this.activeView === 'buttons';
             const isRecentView = this.activeView === 'recent';
             const isAllView = this.activeView === 'all';
-            
+
             // Get the total number of buttons in current view
             let totalButtons;
             if (isCustomView) {
@@ -506,11 +506,11 @@ createApp({
             } else {
                 totalButtons = this.filteredSounds.length;
             }
-            
+
             console.log('Total buttons:', totalButtons, 'cols:', this.config.grid_size.cols);
-            
+
             const cols = this.config.grid_size.cols;
-            
+
             // Handle Enter and Space to play sound
             if (event.key === 'Enter' || event.key === ' ') {
                 event.preventDefault();
@@ -519,12 +519,12 @@ createApp({
                 this.playSound(sound, event);
                 return;
             }
-            
+
             // Handle arrow key navigation
             let newIndex = index;
             let handled = false;
-            
-            switch(event.key) {
+
+            switch (event.key) {
                 case 'ArrowRight':
                     event.preventDefault();
                     newIndex = index < totalButtons - 1 ? index + 1 : index;
@@ -556,7 +556,7 @@ createApp({
                     handled = true;
                     break;
             }
-            
+
             // Focus the new button if we handled a navigation key
             if (handled) {
                 console.log('Moving from index', index, 'to', newIndex);
@@ -575,7 +575,7 @@ createApp({
                 }
             }
         },
-        
+
         handleKeyUp(event) {
             if (event.key === 'Control') {
                 this.modifierKeys.ctrl = false;
@@ -583,23 +583,23 @@ createApp({
                 this.modifierKeys.shift = false;
             }
         },
-        
+
         resetModifiers() {
             this.modifierKeys.ctrl = false;
             this.modifierKeys.shift = false;
         },
-        
+
         filterAndPrioritize(query, sounds) {
             const lowerQuery = query ? query.toLowerCase() : '';
             const filtered = query ? sounds.filter(sound => sound.toLowerCase().includes(lowerQuery)) : sounds;
             return this.prioritizeRecentSounds(filtered);
         },
-        
+
         prioritizeRecentSounds(sounds) {
             const recentSet = new Set(this.config.recent_sounds);
             const recentSounds = [];
             const otherSounds = [];
-            
+
             sounds.forEach(sound => {
                 if (recentSet.has(sound)) {
                     recentSounds.push(sound);
@@ -607,13 +607,13 @@ createApp({
                     otherSounds.push(sound);
                 }
             });
-            
+
             // Return recent sounds first, maintaining their order from recent_sounds
             // Then append other sounds
             const orderedRecent = this.config.recent_sounds.filter(sound => recentSet.has(sound) && sounds.includes(sound));
             return [...orderedRecent, ...otherSounds];
         },
-        
+
         async loadAllSounds() {
             try {
                 this.allSounds = await rpcCall('list', {});
@@ -622,10 +622,10 @@ createApp({
                 alert('Failed to load sound list: ' + error.message);
             }
         },
-        
+
         async loadUserConfig() {
             if (!this.username) return;
-            
+
             try {
                 const config = await rpcCall('get_user_config', { user_name: this.username });
                 if (config) {
@@ -636,7 +636,7 @@ createApp({
                     }
                     // Remove predefined colors from custom_colors if they were migrated
                     if (this.config.custom_colors) {
-                        this.config.custom_colors = this.config.custom_colors.filter(c => 
+                        this.config.custom_colors = this.config.custom_colors.filter(c =>
                             !PREDEFINED_COLORS.some(p => p.name === c.name)
                         );
                     }
@@ -654,7 +654,7 @@ createApp({
                         updated_at: new Date().toISOString()
                     };
                 }
-                
+
                 // Initialize sortable after config loads
                 this.$nextTick(() => {
                     this.initSortable();
@@ -663,13 +663,13 @@ createApp({
                 console.error('Failed to load user config:', error);
             }
         },
-        
+
         async saveConfig() {
             if (!this.username) {
                 alert('Please enter a username first');
                 return;
             }
-            
+
             try {
                 this.config.updated_at = new Date().toISOString();
                 await rpcCall('save_user_config', {
@@ -681,25 +681,25 @@ createApp({
                 alert('Failed to save configuration: ' + error.message);
             }
         },
-        
+
         async saveUsername() {
             localStorage.setItem('username', this.username);
             await this.registerUser();
             this.loadUserConfig();
         },
-        
+
         saveQueueDisplayMode() {
             this.saveConfig();
         },
-        
+
         toggleQueue() {
             this.showQueue = !this.showQueue;
             localStorage.setItem('showQueue', this.showQueue);
         },
-        
+
         async registerUser() {
             if (!this.username) return;
-            
+
             try {
                 await rpcCall('register_user', {
                     user_name: this.username,
@@ -710,19 +710,19 @@ createApp({
                 console.error('[User] Failed to register username:', error);
             }
         },
-        
+
         saveTheme() {
             localStorage.setItem('theme', this.theme);
             document.body.setAttribute('data-bs-theme', this.theme);
         },
-        
+
         togglePlayMode() {
             const modes = ['instant', 'queue', 'next'];
             const currentIndex = modes.indexOf(this.playMode);
             this.playMode = modes[(currentIndex + 1) % modes.length];
             localStorage.setItem('playMode', this.playMode);
         },
-        
+
         toggleFullscreen() {
             if (!document.fullscreenElement) {
                 document.documentElement.requestFullscreen().catch(err => {
@@ -732,7 +732,7 @@ createApp({
                 document.exitFullscreen();
             }
         },
-        
+
         prepareAudioFilters(audioFilters) {
             // Merge with defaults and create a deep copy
             const merged = {
@@ -741,16 +741,16 @@ createApp({
             };
             return merged;
         },
-        
+
         async playSound(query, event = null, audio_filters = null) {
             if (!this.username) {
                 alert('Please enter a username first');
                 return;
             }
-            
+
             // Capture timestamp at the moment of button press for latency tracking
             const request_timestamp = Date.now() / 1000; // Convert to seconds for Python
-            
+
             try {
                 const params = {
                     channelid: DISCORD_VOICE_CHANNEL_ID,
@@ -759,7 +759,7 @@ createApp({
                     audio_filters: this.prepareAudioFilters(audio_filters),
                     request_timestamp: request_timestamp
                 };
-                
+
                 // Determine play mode based on modifier keys or current playMode
                 // Ctrl = instant, Shift = queue, Ctrl+Shift = next
                 let effectiveMode = this.playMode;
@@ -772,7 +772,7 @@ createApp({
                         effectiveMode = 'queue';
                     }
                 }
-                
+
                 // Set interrupt and play_next based on effective mode
                 if (effectiveMode === 'instant') {
                     params.interrupt = true;
@@ -780,16 +780,16 @@ createApp({
                     params.play_next = true;
                 }
                 // Default (queue mode) sets neither flag
-                
+
                 await rpcCall('play', params);
-                
+
                 // Queue and config updates are pushed via WebSocket
             } catch (error) {
                 console.error('Failed to play sound:', error);
                 alert('Failed to play sound: ' + error.message);
             }
         },
-        
+
         async playSearchResult() {
             if (this.searchQuery) {
                 await this.playSound(this.searchQuery);
@@ -797,13 +797,13 @@ createApp({
                 this.selectedSearchIndex = -1;
             }
         },
-        
+
         selectSearchSound(sound) {
             this.searchQuery = sound;
             this.showSearchDropdown = false;
             this.selectedSearchIndex = -1;
         },
-        
+
         handleSearchKeydown(event) {
             if (!this.showSearchDropdown || this.filteredSounds.length === 0) {
                 if (event.key === 'Enter') {
@@ -811,10 +811,10 @@ createApp({
                 }
                 return;
             }
-            
+
             const maxIndex = Math.min(this.filteredSounds.length, 100) - 1;
-            
-            switch(event.key) {
+
+            switch (event.key) {
                 case 'ArrowDown':
                     event.preventDefault();
                     this.selectedSearchIndex = this.selectedSearchIndex < maxIndex ? this.selectedSearchIndex + 1 : 0;
@@ -841,14 +841,14 @@ createApp({
                     break;
             }
         },
-        
+
         handleSearchBlur(event) {
             // Use setTimeout to allow click events on dropdown items and buttons to fire first
             setTimeout(() => {
                 this.showSearchDropdown = false;
             }, 150);
         },
-        
+
         scrollToSearchSelected() {
             this.$nextTick(() => {
                 const dropdown = document.querySelector('.search-dropdown');
@@ -856,7 +856,7 @@ createApp({
                 if (selected && dropdown) {
                     const dropdownRect = dropdown.getBoundingClientRect();
                     const selectedRect = selected.getBoundingClientRect();
-                    
+
                     if (selectedRect.bottom > dropdownRect.bottom) {
                         selected.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
                     } else if (selectedRect.top < dropdownRect.top) {
@@ -865,7 +865,7 @@ createApp({
                 }
             });
         },
-        
+
         async stopPlayback() {
             try {
                 await rpcCall('stop', {
@@ -876,7 +876,7 @@ createApp({
                 console.error('Failed to stop playback:', error);
             }
         },
-        
+
         async skipCurrent() {
             if (!this.username) {
                 alert('Please enter a username first');
@@ -893,7 +893,7 @@ createApp({
                 alert('Failed to skip: ' + error.message);
             }
         },
-        
+
         async refreshQueue() {
             try {
                 this.queueStatus = await rpcCall('queue_status', {
@@ -903,7 +903,7 @@ createApp({
                 console.error('Failed to refresh queue:', error);
             }
         },
-        
+
         async removeQueueItem(userId, index) {
             try {
                 await rpcCall('remove_queue_item', {
@@ -917,16 +917,16 @@ createApp({
                 alert('Failed to remove item: ' + error.message);
             }
         },
-        
+
         async clearUserQueue(userId) {
             // Find the user queue to get the user name for confirmation
             const userQueue = this.queueStatus.user_queues.find(q => q.user_id === userId);
             const userName = userQueue ? userQueue.user_name : 'this user';
-            
+
             if (!confirm(`Clear all ${userQueue.count} items from ${userName}'s queue?`)) {
                 return;
             }
-            
+
             try {
                 // Remove items from the end to avoid index shifting issues
                 for (let i = userQueue.items.length - 1; i >= 0; i--) {
@@ -942,7 +942,7 @@ createApp({
                 alert('Failed to clear queue: ' + error.message);
             }
         },
-        
+
         addNewButton() {
             const newButton = {
                 id: Date.now(),
@@ -973,7 +973,7 @@ createApp({
                 this.setupModalFocusTrap();
             });
         },
-        
+
         addButtonFromSound(sound) {
             this.config.buttons.push({
                 id: Date.now(),
@@ -985,7 +985,7 @@ createApp({
             this.saveConfig();
             this.activeView = 'buttons';
         },
-        
+
         editButton(index) {
             // Ensure the button has an icon field for backwards compatibility
             if (!this.config.buttons[index].hasOwnProperty('icon')) {
@@ -1001,7 +1001,7 @@ createApp({
                 ...this.config.buttons[index].audio_filters
             };
             // Migrate old volume_boost if present
-            if (this.config.buttons[index].hasOwnProperty('volume_boost') && 
+            if (this.config.buttons[index].hasOwnProperty('volume_boost') &&
                 !this.config.buttons[index].audio_filters.hasOwnProperty('volume_boost')) {
                 this.config.buttons[index].audio_filters.volume_boost = this.config.buttons[index].volume_boost;
             }
@@ -1020,20 +1020,20 @@ createApp({
             this.showSoundDropdown = false;
             this.selectedSoundIndex = -1;
         },
-        
+
         setupModalFocusTrap() {
             const modal = document.querySelector('.modal-content');
             if (!modal) return;
-            
+
             const focusableElements = modal.querySelectorAll(
                 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
             );
             const firstFocusable = focusableElements[0];
             const lastFocusable = focusableElements[focusableElements.length - 1];
-            
+
             const handleTabKey = (e) => {
                 if (e.key !== 'Tab') return;
-                
+
                 if (e.shiftKey) {
                     if (document.activeElement === firstFocusable) {
                         e.preventDefault();
@@ -1046,12 +1046,12 @@ createApp({
                     }
                 }
             };
-            
+
             // Store handler reference for cleanup
             modal._focusTrapHandler = handleTabKey;
             modal.addEventListener('keydown', handleTabKey);
         },
-        
+
         cleanupModalFocusTrap() {
             const modal = document.querySelector('.modal-content');
             if (modal && modal._focusTrapHandler) {
@@ -1059,7 +1059,7 @@ createApp({
                 delete modal._focusTrapHandler;
             }
         },
-        
+
         selectSound(sound) {
             if (this.editingButton !== null) {
                 this.config.buttons[this.editingButton].sound = sound;
@@ -1067,15 +1067,15 @@ createApp({
                 this.selectedSoundIndex = -1;
             }
         },
-        
+
         handleSoundInputKeydown(event) {
             if (!this.showSoundDropdown || this.filteredEditSounds.length === 0) {
                 return;
             }
-            
+
             const maxIndex = Math.min(this.filteredEditSounds.length, 100) - 1;
-            
-            switch(event.key) {
+
+            switch (event.key) {
                 case 'ArrowDown':
                     event.preventDefault();
                     this.selectedSoundIndex = this.selectedSoundIndex < maxIndex ? this.selectedSoundIndex + 1 : 0;
@@ -1099,7 +1099,7 @@ createApp({
                     break;
             }
         },
-        
+
         scrollToSelected() {
             this.$nextTick(() => {
                 const dropdown = document.querySelector('.sound-dropdown');
@@ -1107,7 +1107,7 @@ createApp({
                 if (selected && dropdown) {
                     const dropdownRect = dropdown.getBoundingClientRect();
                     const selectedRect = selected.getBoundingClientRect();
-                    
+
                     if (selectedRect.bottom > dropdownRect.bottom) {
                         selected.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
                     } else if (selectedRect.top < dropdownRect.top) {
@@ -1116,24 +1116,24 @@ createApp({
                 }
             });
         },
-        
+
         cleanAudioFilters(button) {
             // Remove default values from audio_filters, keeping only non-default values
             if (!button.audio_filters) return;
-            
+
             const cleanedFilters = {};
             let hasNonDefault = false;
-            
+
             for (const [key, value] of Object.entries(button.audio_filters)) {
                 const defaultValue = DEFAULT_AUDIO_FILTERS[key];
-                
+
                 // Keep the value if it differs from default
                 if (JSON.stringify(value) !== JSON.stringify(defaultValue)) {
                     cleanedFilters[key] = value;
                     hasNonDefault = true;
                 }
             }
-            
+
             // Only keep audio_filters if there are non-default values
             if (hasNonDefault) {
                 button.audio_filters = cleanedFilters;
@@ -1141,49 +1141,52 @@ createApp({
                 delete button.audio_filters;
             }
         },
-        
+
         saveButtonEdit() {
             // Clean audio_filters before saving
             if (this.editingButton !== null) {
                 this.cleanAudioFilters(this.config.buttons[this.editingButton]);
             }
-            
+
             this.cleanupModalFocusTrap();
             this.editingButtonBackup = null;
             this.isNewButton = false;
             this.editingButton = null;
             this.saveConfig();
         },
-        
+
         saveButtonEditAsCopy() {
             if (this.editingButton === null) return;
-            
+
             const currentButton = this.config.buttons[this.editingButton];
             const originalLabel = this.editingButtonBackup.label;
             const newLabel = currentButton.label;
-            
+
             // Check if the label is new (different from original)
             if (newLabel === originalLabel) {
                 alert('Please change the label to create a copy');
                 return;
             }
-            
+
             // Check if the new label already exists
-            const labelExists = this.config.buttons.some((btn, idx) => 
+            const labelExists = this.config.buttons.some((btn, idx) =>
                 idx !== this.editingButton && btn.label === newLabel
             );
-            
+
             if (labelExists) {
                 alert('A button with this label already exists');
                 return;
             }
-            
+
             // Create a copy by adding the current button as a new button
             const buttonCopy = JSON.parse(JSON.stringify(currentButton));
             // Clean audio_filters before adding the copy
             this.cleanAudioFilters(buttonCopy);
             this.config.buttons.push(buttonCopy);
-            
+
+            // Restore the original button to its backup state (so only the copy has the new name)
+            this.config.buttons[this.editingButton] = JSON.parse(JSON.stringify(this.editingButtonBackup));
+
             // Close the edit dialog
             this.cleanupModalFocusTrap();
             this.editingButtonBackup = null;
@@ -1191,10 +1194,10 @@ createApp({
             this.editingButton = null;
             this.saveConfig();
         },
-        
+
         testCurrentSound(instant = false) {
             if (this.editingButton === null) return;
-            
+
             // Ensure we're reading the absolute latest values from the config
             this.$nextTick(() => {
                 const button = this.config.buttons[this.editingButton];
@@ -1202,19 +1205,19 @@ createApp({
                     alert('Please select a sound first');
                     return;
                 }
-                
+
                 // Create a mock event with instant mode if requested
                 const event = instant ? { ctrlKey: true } : null;
-                
+
                 // Play the sound with current settings
                 this.playSound(
-                    button.sound, 
+                    button.sound,
                     event,
                     button.audio_filters
                 );
             });
         },
-        
+
         cancelButtonEdit() {
             if (this.editingButton !== null && this.editingButtonBackup !== null) {
                 // Check if this was a new button (empty sound in backup)
@@ -1233,21 +1236,21 @@ createApp({
             this.showSoundDropdown = false;
             this.selectedSoundIndex = -1;
         },
-        
+
         removeButton(index) {
             if (confirm('Remove this button?')) {
                 this.config.buttons.splice(index, 1);
                 this.saveConfig();
             }
         },
-        
+
         removeRecentSound(index) {
             if (confirm('Remove this sound from recent?')) {
                 this.config.recent_sounds.splice(index, 1);
                 this.saveConfig();
             }
         },
-        
+
         exportConfig() {
             const dataStr = JSON.stringify(this.config, null, 2);
             const dataBlob = new Blob([dataStr], { type: 'application/json' });
@@ -1258,28 +1261,28 @@ createApp({
             link.click();
             URL.revokeObjectURL(url);
         },
-        
+
         async importConfig(event) {
             const file = event.target.files[0];
             if (!file) return;
-            
+
             try {
                 const text = await file.text();
                 const imported = JSON.parse(text);
-                
+
                 // Validate basic structure
                 if (!imported.buttons || !imported.grid_size) {
                     throw new Error('Invalid configuration file format');
                 }
-                
+
                 this.config = {
                     ...imported,
                     updated_at: new Date().toISOString()
                 };
-                
+
                 await this.saveConfig();
                 alert('Configuration imported successfully!');
-                
+
                 // Reinitialize sortable
                 this.$nextTick(() => {
                     this.initSortable();
@@ -1288,21 +1291,21 @@ createApp({
                 console.error('Failed to import config:', error);
                 alert('Failed to import configuration: ' + error.message);
             }
-            
+
             // Reset file input
             event.target.value = '';
         },
-        
+
         async resetConfig() {
             if (!confirm('Reset configuration to default? This will remove all custom buttons.')) {
                 return;
             }
-            
+
             if (!this.username) {
                 alert('Please enter a username first');
                 return;
             }
-            
+
             try {
                 await rpcCall('reset_user_config', { user_name: this.username });
                 await this.loadUserConfig();
@@ -1312,12 +1315,12 @@ createApp({
                 alert('Failed to reset configuration: ' + error.message);
             }
         },
-        
+
         getColorClassName(color) {
             if (typeof color === 'string') return color;
             return color.name || color;
         },
-        
+
         addColor() {
             if (!this.config.custom_colors) {
                 this.config.custom_colors = [];
@@ -1331,13 +1334,13 @@ createApp({
             this.config.custom_colors.push({ name: colorName, rgb: '#000000' });
             this.saveConfig();
         },
-        
+
         removeColor(index) {
             if (!this.config.custom_colors) return;
-            
+
             const customStartIndex = PREDEFINED_COLORS.length;
             const customIndex = index - customStartIndex;
-            
+
             if (customIndex >= 0 && customIndex < this.config.custom_colors.length) {
                 this.config.custom_colors.splice(customIndex, 1);
                 this.saveConfig();
@@ -1361,7 +1364,7 @@ createApp({
         getTextColor(rgbString) {
             // Parse RGB/HEX string and calculate relative luminance for WCAG contrast
             let r, g, b;
-            
+
             if (rgbString.startsWith('#')) {
                 const hex = rgbString.replace('#', '');
                 r = parseInt(hex.substring(0, 2), 16);
@@ -1374,10 +1377,10 @@ createApp({
             } else {
                 return '#fff';
             }
-            
+
             // WCAG relative luminance calculation
             const luminance = this.getRelativeLuminance(r, g, b);
-            
+
             // Use white if background is dark (luminance < 0.4), black if light
             return luminance < 0.4 ? '#fff' : '#000';
         },
@@ -1386,24 +1389,24 @@ createApp({
             r = r / 255;
             g = g / 255;
             b = b / 255;
-            
+
             // Apply gamma correction
             r = r <= 0.03928 ? r / 12.92 : Math.pow((r + 0.055) / 1.055, 2.4);
             g = g <= 0.03928 ? g / 12.92 : Math.pow((g + 0.055) / 1.055, 2.4);
             b = b <= 0.03928 ? b / 12.92 : Math.pow((b + 0.055) / 1.055, 2.4);
-            
+
             // Calculate luminance
             return 0.2126 * r + 0.7152 * g + 0.0722 * b;
         },
-        
+
         initSortable() {
             if (this.sortable) {
                 this.sortable.destroy();
             }
-            
+
             const grid = this.$refs.buttonGrid;
             if (!grid) return;
-            
+
             this.sortable = Sortable.create(grid, {
                 animation: 150,
                 ghostClass: 'sortable-ghost',
@@ -1418,18 +1421,18 @@ createApp({
                 }
             });
         },
-        
+
         toggleEditMode() {
             this.editMode = !this.editMode;
             if (this.sortable) {
                 this.sortable.option('disabled', !this.editMode);
             }
         },
-        
+
         toggleQueueExpanded(userId) {
             this.expandedQueues[userId] = !this.expandedQueues[userId];
         },
-        
+
         startQueuePolling() {
             // Keep polling as backup (every 5 seconds) if WebSocket fails
             this.queueRefreshInterval = setInterval(() => {
@@ -1437,7 +1440,7 @@ createApp({
                     this.refreshQueue();
                 }
             }, 5000);
-            
+
             // Send ping every 5 seconds to measure latency
             this.pingInterval = setInterval(() => {
                 if (websocket && websocket.readyState === WebSocket.OPEN) {
@@ -1449,31 +1452,31 @@ createApp({
                 }
             }, 5000);
         },
-        
+
         stopQueuePolling() {
             if (this.queueRefreshInterval) {
                 clearInterval(this.queueRefreshInterval);
                 this.queueRefreshInterval = null;
             }
-            
+
             if (this.pingInterval) {
                 clearInterval(this.pingInterval);
                 this.pingInterval = null;
             }
-            
+
             // Close WebSocket
             if (websocket) {
                 websocket.close();
                 websocket = null;
             }
         },
-        
+
         async requestWakeLock() {
             try {
                 if ('wakeLock' in navigator) {
                     this.wakeLock = await navigator.wakeLock.request('screen');
                     console.log('Wake lock acquired');
-                    
+
                     this.wakeLock.addEventListener('release', () => {
                         console.log('Wake lock released');
                     });
@@ -1482,7 +1485,7 @@ createApp({
                 console.error('Wake lock request failed:', err);
             }
         },
-        
+
         releaseWakeLock() {
             if (this.wakeLock) {
                 this.wakeLock.release();
@@ -1490,14 +1493,14 @@ createApp({
             }
         }
     },
-    
+
     async mounted() {
         // Apply theme
         document.body.setAttribute('data-bs-theme', this.theme);
-        
+
         // Set initial favicon
         this.updateFavicon(false);
-        
+
         // Initialize WebSocket with queue update handler and wait for it to be ready
         const wsReady = initWebSocket(
             (data) => {
@@ -1543,52 +1546,52 @@ createApp({
                 }
             }
         );
-        
+
         // Start polling interval
         this.startQueuePolling();
-        
+
         // Wait for WebSocket to connect before loading data
         try {
             await wsReady;
-            
+
             // Register username if available
             if (this.username) {
                 await this.registerUser();
             }
-            
+
             // Load initial data
             this.loadAllSounds();
-            
+
             if (this.username) {
                 this.loadUserConfig();
             }
-            
+
             // Get initial queue status
             this.refreshQueue();
         } catch (error) {
             console.error('Failed to initialize WebSocket:', error);
         }
-        
+
         // Request wake lock to keep screen on
         this.requestWakeLock();
-        
+
         // Re-request wake lock when page becomes visible again
         document.addEventListener('visibilitychange', () => {
             if (document.visibilityState === 'visible') {
                 this.requestWakeLock();
             }
         });
-        
+
         // Track fullscreen state changes
         document.addEventListener('fullscreenchange', () => {
             this.isFullscreen = !!document.fullscreenElement;
         });
-        
+
         // Track fullscreen state changes
         document.addEventListener('fullscreenchange', () => {
             this.isFullscreen = !!document.fullscreenElement;
         });
-        
+
         // Add Ctrl+F keyboard shortcut
         document.addEventListener('keydown', (e) => {
             // Ctrl+F for search
@@ -1599,48 +1602,48 @@ createApp({
                 this.showSearchDropdown = true;
                 this.selectedSearchIndex = -1;
             }
-            
+
             // Don't handle shortcuts when typing in inputs
             if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
                 return;
             }
-            
+
             // ? for help
             if (e.key === '?' && !e.ctrlKey && !e.metaKey && !e.altKey) {
                 e.preventDefault();
                 this.showHelp = !this.showHelp;
             }
-            
+
             // S for settings
             if (e.key === 's' && !e.ctrlKey && !e.metaKey && !e.altKey) {
                 e.preventDefault();
                 this.showSettings = !this.showSettings;
             }
-            
+
             // Q for queue
             if (e.key === 'q' && !e.ctrlKey && !e.metaKey && !e.altKey) {
                 e.preventDefault();
                 this.toggleQueue();
             }
-            
+
             // U for users
             if (e.key === 'u' && !e.ctrlKey && !e.metaKey && !e.altKey) {
                 e.preventDefault();
                 this.showConnectedUsers = !this.showConnectedUsers;
             }
-            
+
             // F for fullscreen
             if (e.key === 'f' && !e.ctrlKey && !e.metaKey && !e.altKey) {
                 e.preventDefault();
                 this.toggleFullscreen();
             }
-            
+
             // M for toggle play mode
             if (e.key === 'm' && !e.ctrlKey && !e.metaKey && !e.altKey) {
                 e.preventDefault();
                 this.togglePlayMode();
             }
-            
+
             // 1, 2, 3 for view switching
             if (e.key === '1' && !e.ctrlKey && !e.metaKey && !e.altKey) {
                 e.preventDefault();
@@ -1654,7 +1657,7 @@ createApp({
                 e.preventDefault();
                 this.activeView = 'all';
             }
-            
+
             // Escape to close modals and panels
             if (e.key === 'Escape') {
                 if (this.editingButton !== null) {
@@ -1670,20 +1673,20 @@ createApp({
                 }
             }
         });
-        
+
         // Track modifier keys globally for play mode indication
         window.addEventListener('keydown', this.handleKeyDown);
         window.addEventListener('keyup', this.handleKeyUp);
         window.addEventListener('blur', this.resetModifiers);
     },
-    
+
     beforeUnmount() {
         this.stopQueuePolling();
         if (this.sortable) {
             this.sortable.destroy();
         }
         this.releaseWakeLock();
-        
+
         // Clean up modifier key listeners
         window.removeEventListener('keydown', this.handleKeyDown);
         window.removeEventListener('keyup', this.handleKeyUp);

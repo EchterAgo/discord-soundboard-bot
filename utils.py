@@ -5,7 +5,7 @@ from pathlib import Path
 
 def find_files(path: Path) -> typing.Iterator[str]:
     path = Path(path)
-    for file_path in path.rglob('*'):
+    for file_path in path.rglob("*"):
         if file_path.is_file():
             yield str(file_path.relative_to(path))
 

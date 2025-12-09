@@ -9,7 +9,7 @@ class MagischeKugel(commands.Cog):
         self.bot = bot
 
         self.responses = [
-            "Ja.", 
+            "Ja.",
             "Nein.",
             "Vielleicht.",
             "Frag später noch einmal.",

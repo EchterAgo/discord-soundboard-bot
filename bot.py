@@ -46,11 +46,11 @@ aiohttp.resolver.DefaultResolver = aiohttp.resolver.ThreadedResolver
 
 async def wait_for_voice_connection(voice_client, max_wait: float = 5.0) -> bool:
     """Wait for voice client to be connected.
-    
+
     Args:
         voice_client: The voice client to wait for
         max_wait: Maximum time to wait in seconds
-        
+
     Returns:
         True if connected, False if timeout
     """
@@ -149,15 +149,15 @@ async def start_discord_bot():
     await bot.add_cog(MagischeKugel(bot))
     await bot.add_cog(Bloedsinn(bot))
     await bot.add_cog(Statistics(bot))
-    
+
     # Set up queue update callback for WebSocket broadcasts
     audio_player = bot.get_cog("AudioPlayer")
     if audio_player:
         # Define the callback that broadcasts to all WebSocket clients
         async def queue_update_callback():
             # Use the default Discord voice channel for soundboard
-            await rpc_server.broadcast_queue_update(bot, '1033659964457230392')
-        
+            await rpc_server.broadcast_queue_update(bot, "1033659964457230392")
+
         audio_player.queue_update_callback = queue_update_callback
 
     # Start file watcher for audio directory changes
@@ -176,11 +176,11 @@ async def main(args):
     # Set logging level based on verbose flag
     log_level = logging.DEBUG if args.verbose else logging.INFO
     logging.basicConfig(level=log_level)
-    
+
     # Disable verbose logging for ffmpeg and aiohttp unless verbose is set
     if not args.verbose:
-        logging.getLogger('discord.player').setLevel(logging.WARNING)
-        logging.getLogger('aiohttp.access').setLevel(logging.WARNING)
+        logging.getLogger("discord.player").setLevel(logging.WARNING)
+        logging.getLogger("aiohttp.access").setLevel(logging.WARNING)
 
     await start_discord_bot()
 
@@ -189,7 +189,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Discord Soundboard Bot")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose debug logging")
     args = parser.parse_args()
-    
+
     asyncio.run(main(args))
 
 # https://discord.com/api/oauth2/authorize?client_id=1085103559244251179&permissions=2048&scope=bot

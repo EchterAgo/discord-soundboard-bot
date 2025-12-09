@@ -127,7 +127,10 @@
       "label": "Hallo, können sie uns mitnehmen",
       "sound": "ago/hallo.mp3",
       "color": "success",
-      "icon": "bi bi-chat-fill"
+      "icon": "bi bi-chat-fill",
+      "audio_filters": {
+        "compressor": true
+      }
     },
     {
       "id": 10,
@@ -211,7 +214,10 @@
       "label": "Warum liegt da ne Wurst?",
       "sound": "ago/wurst.mp3",
       "color": "primary",
-      "icon": "fas fa-hotdog"
+      "icon": "fas fa-hotdog",
+      "audio_filters": {
+        "compressor": true
+      }
     },
     {
       "id": 19,
@@ -594,13 +600,37 @@
     },
     {
       "id": 12,
-      "label": "Leben bedroht slow",
+      "label": "Leben bedroht Xtreme",
       "sound": "ago/lebenbedroht.mp3",
       "color": "danger",
       "icon": "bi bi-exclamation-triangle-fill",
       "audio_filters": {
         "volume_boost": 1.9,
-        "rubberband_pitch": -11
+        "compressor": false,
+        "bass_boost": 20,
+        "treble_boost": 0,
+        "highpass": 0,
+        "lowpass": 0,
+        "chorus": false,
+        "earwax": false,
+        "rubberband_pitch": -11,
+        "rubberband_tempo": 1,
+        "silence_remove": false,
+        "tremolo_freq": 0,
+        "tremolo_depth": 0,
+        "vibrato_freq": 0,
+        "vibrato_depth": 0,
+        "supereq_bands": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
       }
     },
     {
@@ -654,6 +684,87 @@
       "sound": "ago/pew.mp3",
       "color": "primary",
       "icon": ""
+    },
+    {
+      "id": 12,
+      "label": "Leben bedroht Xtreme 2",
+      "sound": "ago/lebenbedroht.mp3",
+      "color": "danger",
+      "icon": "bi bi-exclamation-triangle-fill",
+      "audio_filters": {
+        "volume_boost": 1.7,
+        "bass_boost": 20,
+        "rubberband_pitch": -11,
+        "supereq_bands": [
+          1,
+          0.5,
+          0,
+          3,
+          6.5,
+          8,
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "id": 12,
+      "label": "Leben bedroht Xtreme 3",
+      "sound": "ago/lebenbedroht.mp3",
+      "color": "danger",
+      "icon": "bi bi-exclamation-triangle-fill",
+      "audio_filters": {
+        "volume_boost": 1.8,
+        "compressor": false,
+        "bass_boost": 20,
+        "treble_boost": 0,
+        "highpass": 0,
+        "lowpass": 0,
+        "chorus": false,
+        "earwax": false,
+        "rubberband_pitch": -11,
+        "rubberband_tempo": 1,
+        "silence_remove": false,
+        "tremolo_freq": 0,
+        "tremolo_depth": 0,
+        "vibrato_freq": 0,
+        "vibrato_depth": 0,
+        "supereq_bands": [
+          1,
+          0.5,
+          0,
+          3,
+          6.5,
+          11.5,
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "id": 12,
+      "label": "Leben bedroht Xtreme 4",
+      "sound": "ago/lebenbedroht.mp3",
+      "color": "danger",
+      "icon": "bi bi-exclamation-triangle-fill",
+      "audio_filters": {
+        "volume_boost": 1.9,
+        "bass_boost": 20,
+        "rubberband_pitch": -11,
+        "supereq_bands": [
+          1,
+          0.5,
+          0,
+          3,
+          12,
+          11.5,
+          7.5,
+          0,
+          0
+        ]
+      }
     }
   ],
   "grid_size": {
@@ -661,36 +772,36 @@
     "rows": 12
   },
   "recent_sounds": [
-    "ago/pew.mp3",
-    "ago/gerhard_mueller_weihnacht.mp3",
-    "ago/alarm.mp3",
-    "ago/ganzetagsuff.mp3",
-    "ago/mario_jump.mp3",
-    "ago/kloesse.mp3",
-    "ago/jedezelle.mp3",
     "ago/wurst.mp3",
     "ago/wurst2.mp3",
-    "downloads/Loriot/Loriot_-_Was_fuer_ein_Laden_ist_das_denn_hier.opus",
-    "ago/seehofer_multi_gruenen.mp3",
-    "ago/lebenbedroht.mp3",
-    "ago/bb/dumbass.mp3",
-    "ago/bb/heybaby.mp3",
-    "ago/bb/tpformybunghole.mp3",
-    "ago/bb/threatningme.mp3",
-    "ago/bb/money.mp3",
-    "ago/mimi12.mp3",
-    "ago/mimi11.mp3",
-    "ago/mimi10.mp3"
+    "ago/kazoo2.mp3",
+    "ago/kazoo.mp3",
+    "ago/pacman_death.mp3",
+    "ago/mario_dead.mp3",
+    "ago/mario_jump.mp3",
+    "ago/blutbad.mp3",
+    "ago/buenzli_verhaften.mp3",
+    "ago/buenzli_verboten.mp3",
+    "ago/ss/jump.wav",
+    "ago/hl/npc_step1.wav",
+    "ago/hl/npc_step2.wav",
+    "ago/hl/npc_step3.wav",
+    "ago/hl/npc_step4.wav",
+    "ago/cash.mp3",
+    "ago/mimi.mp3",
+    "ago/seehofer_gruenen.mp3",
+    "ago/seehofer_gruenen2.mp3",
+    "ago/kloesse.mp3"
   ],
   "favorites": [],
   "version": "1.0",
   "created_at": "2025-12-07T00:00:00.000Z",
-  "updated_at": "2025-12-08T17:19:45.065267",
+  "updated_at": "2025-12-09T10:55:32.064979",
   "custom_colors": [
     {
       "name": "grün",
       "rgb": "#00ff00"
     }
   ],
-  "queue_list_as_overlay": true
+  "queue_list_as_overlay": false
 }

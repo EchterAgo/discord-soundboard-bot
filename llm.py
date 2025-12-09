@@ -43,16 +43,18 @@ async def talk_to_gpt(prompt: str, model: str = "gpt-4o", messages: List[Dict[st
                 )
 
             response = await response.json()
-            return GptResponse(text=response["choices"][0]["message"]["content"], usage=response["usage"], pricing=response["x_nanogpt_pricing"])
+            return GptResponse(
+                text=response["choices"][0]["message"]["content"],
+                usage=response["usage"],
+                pricing=response["x_nanogpt_pricing"],
+            )
 
 
 class LLM(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @app_commands.command(
-        name="gentext", description="Large language model text generation"
-    )
+    @app_commands.command(name="gentext", description="Large language model text generation")
     @app_commands.describe(prompt="Text prompt", model="Pick a model!")
     @app_commands.guilds(1033659963580633088)
     async def gentext(
@@ -73,7 +75,7 @@ class LLM(commands.Cog):
 
         asyncio.create_task(task_func())
 
-    @gentext.autocomplete('model')
+    @gentext.autocomplete("model")
     async def autocomplete_models(self, interaction: discord.Interaction, current: str):
         choices = [
             "chatgpt-4o-latest",
@@ -106,9 +108,7 @@ class LLM(commands.Cog):
         ][:25]
         return [app_commands.Choice(name=choice, value=choice) for choice in choices]
 
-    @app_commands.command(
-        name="genlocal", description="Large language model text generation"
-    )
+    @app_commands.command(name="genlocal", description="Large language model text generation")
     @app_commands.describe(prompt="Text prompt", model="Pick a model!")
     @app_commands.guilds(1033659963580633088)
     async def genlocal(
@@ -129,7 +129,7 @@ class LLM(commands.Cog):
 
         asyncio.create_task(task_func())
 
-    @genlocal.autocomplete('model')
+    @genlocal.autocomplete("model")
     async def autocomplete_models_local(self, interaction: discord.Interaction, current: str):
         choices = [
             "Qwen2.5-Coder-32B-Instruct-Q4_K_L.gguf",
