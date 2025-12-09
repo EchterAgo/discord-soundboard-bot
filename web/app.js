@@ -716,6 +716,11 @@ createApp({
             document.body.setAttribute('data-bs-theme', this.theme);
         },
 
+        toggleTheme() {
+            this.theme = this.theme === 'dark' ? 'light' : 'dark';
+            this.saveTheme();
+        },
+
         togglePlayMode() {
             const modes = ['instant', 'queue', 'next'];
             const currentIndex = modes.indexOf(this.playMode);

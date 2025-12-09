@@ -67,6 +67,10 @@
                         title="Toggle Fullscreen (Press F)" aria-label="Toggle fullscreen" tabindex="0">
                         <i class="bi" :class="isFullscreen ? 'bi-fullscreen-exit' : 'bi-fullscreen'"></i>
                     </button>
+                    <button class="btn btn-sm btn-outline-light" @click="toggleTheme"
+                        title="Toggle Dark Mode" aria-label="Toggle dark mode" tabindex="0">
+                        <i class="bi" :class="theme === 'dark' ? 'bi-sun-fill' : 'bi-moon-fill'"></i>
+                    </button>
                     <button class="btn btn-sm btn-outline-light" @click="showHelp = !showHelp"
                         @keydown.enter="showHelp = !showHelp" title="Help (Press ?)" aria-label="Toggle help"
                         tabindex="0">
