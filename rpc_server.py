@@ -717,6 +717,22 @@ async def jsonrpc_update_ping(context, ping_ms: int) -> Result:
     return Success("Ping updated")
 
 
+@method(name="update_clock_offset")
+async def jsonrpc_update_clock_offset(context, offset_ms: float) -> Result:
+    """Update the clock offset for the current WebSocket connection.
+
+    Args:
+        offset_ms: Clock offset in milliseconds (server_time - client_time)
+
+    Returns:
+        Success result
+    """
+    ws = context.get("ws")
+    if ws and ws in websocket_connections:
+        websocket_connections[ws]["clock_offset_ms"] = round(offset_ms, 1)
+    return Success("Clock offset updated")
+
+
 @method(name="get_audio_stats")
 async def jsonrpc_get_audio_stats(context) -> Result:
     """Get audio pipeline latency statistics.
@@ -824,7 +840,11 @@ async def handle_websocket(request):
                         # Send back pong with server timestamp for clock sync
                         server_time = time.time()
                         websocket_connections[ws]["last_ping"] = server_time
-                        await ws.send_json({"type": "pong", "server_time": server_time})
+                        pong_response = {"type": "pong", "server_time": server_time}
+                        # Echo back ping_id if provided
+                        if "ping_id" in data:
+                            pong_response["ping_id"] = data["ping_id"]
+                        await ws.send_json(pong_response)
                         continue
 
                     # Handle JSON-RPC over WebSocket

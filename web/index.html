@@ -563,7 +563,7 @@
                 <div
                     class="users-overlay-header bg-success text-white d-flex justify-content-between align-items-center">
                     <h5 class="mb-0"><i class="bi bi-people-fill"></i> Connected Users ({{ connectedUsers }})</h5>
-                    <button class="btn btn-sm btn-light ms-2" @click="showConnectedUsers = false" title="Close Users"
+                    <button class="btn btn-sm btn-light" @click="showConnectedUsers = false" title="Close Users"
                         aria-label="Close users overlay"><i class="bi bi-x-lg"></i></button>
                 </div>
                 <div class="users-overlay-body">
@@ -578,13 +578,18 @@
                                 <span class="fw-bold text-truncate">{{ user.username }}</span>
                             </div>
                             <div class="d-flex gap-2 align-items-center">
+                                <span class="badge bg-warning text-dark flex-shrink-0"
+                                    :title="'Clock offset: ' + (user.clock_offset_ms !== undefined ? user.clock_offset_ms + 'ms' : 'N/A')"
+                                    style="min-width: 60px;">
+                                    <i class="bi bi-clock-history"></i> {{ user.clock_offset_ms !== undefined ? (user.clock_offset_ms >= 0 ? '+' : '') + user.clock_offset_ms + 'ms' : 'N/A' }}
+                                </span>
                                 <span class="badge bg-info flex-shrink-0"
                                     :title="'Latency: ' + (user.ping_ms || 0) + 'ms'" style="min-width: 50px;">
                                     <i class="bi bi-broadcast"></i> {{ user.ping_ms || 0 }}ms
                                 </span>
                                 <span class="badge bg-secondary flex-shrink-0"
                                     :title="user.hostname + ' (IP: ' + user.ip + ')'"
-                                    style="max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                    style="max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
                                     <i class="bi bi-wifi"></i> {{ truncateHostname(user.hostname) }}
                                 </span>
                             </div>

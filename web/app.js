@@ -45,6 +45,7 @@ let wsReadyResolve = null;
 // Clock synchronization
 let clockOffset = 0; // Estimated offset: server_time - client_time (in seconds)
 let lastPingTime = 0;
+let lastPingId = 0;
 let pingInterval = null;
 
 function initWebSocket(onQueueUpdate, onFileListUpdate, onConfigUpdate, onConnected) {
@@ -85,14 +86,21 @@ function initWebSocket(onQueueUpdate, onFileListUpdate, onConfigUpdate, onConnec
             // Handle pong responses to calculate RTT and clock offset
             if (data.type === 'pong') {
                 const clientReceiveTime = Date.now() / 1000; // Current time in seconds (T4)
+                const pongId = data.ping_id;
+                
+                // Ignore pongs that don't match our last ping (old/delayed responses)
+                if (pongId !== lastPingId) {
+                    console.log(`[Clock Sync] Ignoring old pong (ID ${pongId}, expected ${lastPingId})`);
+                    return;
+                }
+                
                 const clientSendTime = lastPingTime; // When we sent ping (T1)
                 const rtt = clientReceiveTime - clientSendTime; // RTT in seconds
                 const serverTime = data.server_time; // Server timestamp when pong was sent (T3)
                 
                 // Discard measurements with abnormally high RTT (> 100ms)
-                // This filters out delayed pongs from initial connection or network hiccups
                 if (rtt > 0.1) {
-                    console.log(`[Clock Sync] Discarding high RTT measurement: ${(rtt * 1000).toFixed(1)}ms`);
+                    console.log(`[Clock Sync] High RTT: ${(rtt * 1000).toFixed(1)}ms (network issue or clock drift)`);
                     return;
                 }
                 
@@ -107,7 +115,15 @@ function initWebSocket(onQueueUpdate, onFileListUpdate, onConfigUpdate, onConnec
                 if (clockOffset === 0) {
                     // First good measurement: use it directly
                     clockOffset = estimatedOffset;
+                    const offsetMs = Math.round(clockOffset * 1000);
                     console.log(`[Clock Sync] Initial offset: ${(clockOffset * 1000).toFixed(1)}ms`);
+                    if (window.vueApp) window.vueApp.clockOffsetMs = offsetMs;
+                    // Send to server
+                    if (websocket && websocket.readyState === WebSocket.OPEN) {
+                        try {
+                            rpcCall('update_clock_offset', { offset_ms: offsetMs }).catch(() => { });
+                        } catch (e) { }
+                    }
                     return;
                 } else if (Math.abs(estimatedOffset - clockOffset) > 0.05) {
                     // Large deviation (>50ms): fast convergence
@@ -119,7 +135,23 @@ function initWebSocket(onQueueUpdate, onFileListUpdate, onConfigUpdate, onConnec
                 
                 clockOffset = clockOffset * (1 - alpha) + estimatedOffset * alpha;
                 
+                const offsetMs = Math.round(clockOffset * 1000);
+                
+                // Update Vue data for display if app is mounted
+                if (window.vueApp) {
+                    window.vueApp.clockOffsetMs = offsetMs;
+                }
+                
                 console.log(`[Clock Sync] RTT: ${(rtt * 1000).toFixed(1)}ms, Estimated: ${(estimatedOffset * 1000).toFixed(1)}ms, Smoothed: ${(clockOffset * 1000).toFixed(1)}ms, α=${alpha.toFixed(1)}`);
+                
+                // Send clock offset to server (throttled to prevent spam)
+                if (websocket && websocket.readyState === WebSocket.OPEN) {
+                    try {
+                        rpcCall('update_clock_offset', { offset_ms: offsetMs }).catch(() => { });
+                    } catch (e) {
+                        // Silently ignore
+                    }
+                }
                 
                 // Send RTT back to server via RPC so other clients see it
                 if (websocket && websocket.readyState === WebSocket.OPEN) {
@@ -226,7 +258,8 @@ function startPeriodicPing() {
 function sendPing() {
     if (websocket && websocket.readyState === WebSocket.OPEN) {
         lastPingTime = Date.now() / 1000; // Store in seconds
-        websocket.send(JSON.stringify({ type: 'ping' }));
+        lastPingId++; // Increment ping ID
+        websocket.send(JSON.stringify({ type: 'ping', ping_id: lastPingId }));
     }
 }
 
@@ -271,7 +304,7 @@ async function rpcCall(method, params = {}) {
     return await rpcCallWs(method, params);
 }
 
-createApp({
+const app = createApp({
     data() {
         return {
             username: localStorage.getItem('username') || '',
@@ -295,6 +328,7 @@ createApp({
             connectedUsers: 0,
             connectedUserList: [],
             showConnectedUsers: false,
+            clockOffsetMs: 0, // Clock offset in milliseconds for display
             queueStatus: {
                 connected: false,
                 is_playing: false,
@@ -1575,28 +1609,12 @@ createApp({
                     this.refreshQueue();
                 }
             }, 5000);
-
-            // Send ping every 5 seconds to measure latency
-            this.pingInterval = setInterval(() => {
-                if (websocket && websocket.readyState === WebSocket.OPEN) {
-                    window.lastPingTimestamp = Date.now();
-                    websocket.send(JSON.stringify({
-                        type: 'ping',
-                        timestamp: window.lastPingTimestamp
-                    }));
-                }
-            }, 5000);
         },
 
         stopQueuePolling() {
             if (this.queueRefreshInterval) {
                 clearInterval(this.queueRefreshInterval);
                 this.queueRefreshInterval = null;
-            }
-
-            if (this.pingInterval) {
-                clearInterval(this.pingInterval);
-                this.pingInterval = null;
             }
 
             // Close WebSocket
@@ -1850,4 +1868,8 @@ createApp({
         window.removeEventListener('keyup', this.handleKeyUp);
         window.removeEventListener('blur', this.resetModifiers);
     }
-}).mount('#app');
+});
+
+// Store app instance globally so clock sync can update it
+window.vueApp = app;
+app.mount('#app');
