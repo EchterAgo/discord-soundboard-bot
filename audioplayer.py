@@ -1048,8 +1048,15 @@ class AudioPlayer(commands.Cog):
             return False
 
         stream = self.mixed_source.streams[user_id]
-        stream.cleanup()
+        
+        # Mark finished and remove from mixer immediately
+        stream.finished = True
         del self.mixed_source.streams[user_id]
+        
+        # Schedule cleanup in background (non-blocking)
+        # No need to wait for process termination
+        threading.Thread(target=stream.cleanup, daemon=True).start()
+            
         if user_name:
             _log.info(f"{user_name} (ID: {user_id}) stream stopped")
         return True
