@@ -212,9 +212,10 @@ def _build_queue_status(audio_player, guild):
         "active_streams": [],
         "total_queued": 0,
         "average_latency": None,
+        "voice_server_endpoint": None,
     }
 
-    # Get voice client latency if connected
+    # Get voice client latency and endpoint if connected
     if guild.voice_client is not None:
         try:
             # average_latency is in seconds, convert to ms and round to 1 decimal
@@ -222,6 +223,10 @@ def _build_queue_status(audio_player, guild):
             # Only set if finite (not inf or nan)
             if math.isfinite(latency_ms):
                 status["average_latency"] = round(latency_ms, 1)
+            
+            # Get voice server endpoint if available
+            if hasattr(guild.voice_client, 'endpoint') and guild.voice_client.endpoint:
+                status["voice_server_endpoint"] = guild.voice_client.endpoint
         except Exception:
             pass
 

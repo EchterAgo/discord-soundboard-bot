@@ -51,7 +51,7 @@
                     <span class="badge bg-success ms-2" v-else>Playing</span>
                     <span class="badge ms-2" v-if="queueStatus.average_latency !== null && queueStatus.average_latency !== undefined"
                         :class="getLatencyBadgeClass(queueStatus.average_latency)"
-                        :title="'Voice client average latency: ' + queueStatus.average_latency + 'ms'">
+                        :title="'Voice client average latency: ' + queueStatus.average_latency + 'ms' + (queueStatus.voice_server_endpoint ? '\nVoice server: ' + queueStatus.voice_server_endpoint : '')">
                         <i class="bi bi-reception-4"></i> {{ queueStatus.average_latency }}ms
                     </span>
                 </span>
