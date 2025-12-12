@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import Dict, Optional
 import statistics
 
-_log = logging.getLogger(__name__)
+_log = logging.getLogger("audioplayer.stats")
 
 
 @dataclass
@@ -51,7 +51,7 @@ class AudioPipelineStats:
 
         if self.first_byte_timestamp:
             self.total_latency = (self.first_byte_timestamp - self.request_timestamp) * 1000
-            
+
             # End-to-end latency from client click to first audio byte
             if self.client_request_timestamp:
                 self.end_to_end_latency = (self.first_byte_timestamp - self.client_request_timestamp) * 1000
@@ -71,7 +71,9 @@ class AudioPipelineStats:
             "stream_start_timestamp": self.stream_start_timestamp,
             "first_byte_timestamp": self.first_byte_timestamp,
             "stream_end_timestamp": self.stream_end_timestamp,
-            "client_to_server_latency": round(self.client_to_server_latency, 2) if self.client_to_server_latency else None,
+            "client_to_server_latency": (
+                round(self.client_to_server_latency, 2) if self.client_to_server_latency else None
+            ),
             "queue_latency": round(self.queue_latency, 2) if self.queue_latency else None,
             "processing_latency": round(self.processing_latency, 2) if self.processing_latency else None,
             "decode_latency": round(self.decode_latency, 2) if self.decode_latency else None,
@@ -90,7 +92,14 @@ class AudioStatsCollector:
         self.active_stats: Dict[int, AudioPipelineStats] = {}  # user_id -> current stats
         self.lock = threading.Lock()
 
-    def start_request(self, user_id: int, user_name: str, filepath: str, timestamp: Optional[float] = None, client_request_timestamp: Optional[float] = None) -> float:
+    def start_request(
+        self,
+        user_id: int,
+        user_name: str,
+        filepath: str,
+        timestamp: Optional[float] = None,
+        client_request_timestamp: Optional[float] = None,
+    ) -> float:
         """Start tracking a new audio request.
 
         Args:
@@ -110,16 +119,16 @@ class AudioStatsCollector:
             # Don't overwrite if we're already tracking this user
             if user_id not in self.active_stats:
                 stats = AudioPipelineStats(
-                    user_id=user_id, 
-                    user_name=user_name, 
-                    filepath=filepath, 
+                    user_id=user_id,
+                    user_name=user_name,
+                    filepath=filepath,
                     request_timestamp=timestamp,
-                    client_request_timestamp=client_request_timestamp
+                    client_request_timestamp=client_request_timestamp,
                 )
                 self.active_stats[user_id] = stats
-                _log.debug(f"[STATS] Started tracking request for {user_name} (ID: {user_id})")
+                _log.debug(f"Started tracking request for {user_name} (ID: {user_id})")
             else:
-                _log.debug(f"[STATS] Already tracking {user_name} (ID: {user_id}), not overwriting")
+                _log.debug(f"Already tracking {user_name} (ID: {user_id}), not overwriting")
 
         return timestamp
 
@@ -128,18 +137,18 @@ class AudioStatsCollector:
         with self.lock:
             if user_id in self.active_stats:
                 self.active_stats[user_id].queue_timestamp = time.time()
-                _log.debug(f"[STATS] Marked queued for user ID: {user_id}")
+                _log.debug(f"Marked queued for user ID: {user_id}")
             else:
-                _log.warning(f"[STATS] Cannot mark queued - user ID {user_id} not in active_stats")
+                _log.warning(f"Cannot mark queued - user ID {user_id} not in active_stats")
 
     def mark_stream_start(self, user_id: int):
         """Mark when the ffmpeg stream was started."""
         with self.lock:
             if user_id in self.active_stats:
                 self.active_stats[user_id].stream_start_timestamp = time.time()
-                _log.debug(f"[STATS] Marked stream start for user ID: {user_id}")
+                _log.debug(f"Marked stream start for user ID: {user_id}")
             else:
-                _log.warning(f"[STATS] Cannot mark stream start - user ID {user_id} not in active_stats")
+                _log.warning(f"Cannot mark stream start - user ID {user_id} not in active_stats")
 
     def mark_first_byte(self, user_id: int):
         """Mark when the first audio byte was decoded."""
@@ -150,11 +159,9 @@ class AudioStatsCollector:
                 stats.calculate_latencies()
                 total = f"{stats.total_latency:.2f}" if stats.total_latency is not None else "N/A"
                 decode = f"{stats.decode_latency:.2f}" if stats.decode_latency is not None else "N/A"
-                _log.info(
-                    f"[STATS] First byte for user ID {user_id}: total_latency={total}ms, decode_latency={decode}ms"
-                )
+                _log.info(f"First byte for user ID {user_id}: total_latency={total}ms, decode_latency={decode}ms")
             else:
-                _log.warning(f"[STATS] Cannot mark first byte - user ID {user_id} not in active_stats")
+                _log.warning(f"Cannot mark first byte - user ID {user_id} not in active_stats")
 
     def mark_stream_end(self, user_id: int):
         """Mark when the stream finished and archive the stats."""
@@ -163,16 +170,16 @@ class AudioStatsCollector:
                 stats = self.active_stats[user_id]
                 stats.stream_end_timestamp = time.time()
                 stats.calculate_latencies()
-                
+
                 # For interrupted streams that never got first byte, calculate partial total latency
                 # using stream_end as the endpoint instead of first_byte
                 if stats.total_latency is None and stats.stream_end_timestamp:
                     stats.total_latency = (stats.stream_end_timestamp - stats.request_timestamp) * 1000
-                    _log.debug(f"[STATS] Stream interrupted before first byte, using end time for total latency")
+                    _log.debug(f"Stream interrupted before first byte, using end time for total latency")
 
                 total = f"{stats.total_latency:.2f}" if stats.total_latency is not None else "N/A"
                 playback = f"{stats.playback_duration:.2f}" if stats.playback_duration is not None else "N/A"
-                _log.info(f"[STATS] Archived stats for user ID {user_id}: total={total}ms, playback={playback}ms")
+                _log.info(f"Archived stats for user ID {user_id}: total={total}ms, playback={playback}ms")
 
                 # Archive to history
                 self.history.append(stats)
@@ -180,7 +187,7 @@ class AudioStatsCollector:
                 # Remove from active
                 del self.active_stats[user_id]
             else:
-                _log.warning(f"[STATS] Cannot mark stream end - user ID {user_id} not in active_stats")
+                _log.warning(f"Cannot mark stream end - user ID {user_id} not in active_stats")
 
     def get_summary(self) -> Dict:
         """Get a summary of collected statistics.
@@ -207,7 +214,9 @@ class AudioStatsCollector:
                 queue_latencies = [s.queue_latency for s in self.history if s.queue_latency is not None]
                 processing_latencies = [s.processing_latency for s in self.history if s.processing_latency is not None]
                 decode_latencies = [s.decode_latency for s in self.history if s.decode_latency is not None]
-                client_to_server_latencies = [s.client_to_server_latency for s in self.history if s.client_to_server_latency is not None]
+                client_to_server_latencies = [
+                    s.client_to_server_latency for s in self.history if s.client_to_server_latency is not None
+                ]
                 end_to_end_latencies = [s.end_to_end_latency for s in self.history if s.end_to_end_latency is not None]
 
                 averages = {}
@@ -250,7 +259,7 @@ class AudioStatsCollector:
                             else None
                         ),
                     }
-                
+
                 if client_to_server_latencies:
                     averages["client_to_server"] = round(statistics.mean(client_to_server_latencies), 2)
                     percentiles["client_to_server"] = {
@@ -266,7 +275,7 @@ class AudioStatsCollector:
                             else None
                         ),
                     }
-                
+
                 if end_to_end_latencies:
                     averages["end_to_end"] = round(statistics.mean(end_to_end_latencies), 2)
                     percentiles["end_to_end"] = {
@@ -302,4 +311,4 @@ class AudioStatsCollector:
 
 
 # Global stats collector instance
-audio_stats = AudioStatsCollector(max_history=100)
+audioplayer_stats = AudioStatsCollector(max_history=100)

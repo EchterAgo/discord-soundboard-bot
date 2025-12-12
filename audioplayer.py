@@ -17,9 +17,16 @@ from utils import caseless_in, find_files
 from observable import ObservableDeque, ObservableDequeDict
 from typing import Callable, Iterator, Optional, Dict
 import audioop
-from audio_stats import audio_stats
+from audioplayer_stats import audioplayer_stats
 
-_log = logging.getLogger(__name__)
+# Create separate loggers for different aspects of audio playback
+# By default (non-verbose mode), only _log messages are shown (user actions)
+# Use --verbose flag to enable all detailed logging categories
+_log = logging.getLogger(__name__)  # General/user actions (always visible)
+_log_latency = logging.getLogger(f"{__name__}.latency")  # Latency measurements
+_log_queue = logging.getLogger(f"{__name__}.queue")  # Queue operations
+_log_stream = logging.getLogger(f"{__name__}.stream")  # Stream lifecycle (start/stop/replace)
+_log_debug = logging.getLogger(f"{__name__}.debug")  # Low-level debug info
 
 
 @lru_cache(maxsize=1024)
@@ -40,7 +47,7 @@ def get_audio_duration(filepath: str) -> Optional[float]:
             duration = float(data.get("format", {}).get("duration", 0))
             return duration if duration > 0 else None
     except Exception as e:
-        _log.debug(f"Could not get duration for {filepath}: {e}")
+        _log_debug.debug(f"Could not get duration for {filepath}: {e}")
     return None
 
 
@@ -250,7 +257,7 @@ class UserAudioStream:
 
             # Track stream start for stats only if we have a request timestamp (not a queue transition)
             if self.request_timestamp is not None:
-                audio_stats.mark_stream_start(self.user_id)
+                audioplayer_stats.mark_stream_start(self.user_id)
 
             # Start thread to read progress updates
             self.progress_thread = threading.Thread(target=self._read_progress, args=(progress_r,), daemon=True)
@@ -318,10 +325,10 @@ class UserAudioStream:
                 if self.first_byte_timestamp is None:
                     self.first_byte_timestamp = time.time()
                     if self.request_timestamp is not None:
-                        audio_stats.mark_first_byte(self.user_id)
+                        audioplayer_stats.mark_first_byte(self.user_id)
                         latency_ms = (self.first_byte_timestamp - self.request_timestamp) * 1000
-                        _log.info(
-                            f"[LATENCY] {self.user_name}: {latency_ms:.2f}ms from button press to first byte decoded (file: {self.filepath})"
+                        _log_latency.info(
+                            f"{self.user_name}: {latency_ms:.2f}ms from button press to first byte decoded (file: {self.filepath})"
                         )
             return data
         except Exception as e:
@@ -346,7 +353,7 @@ class UserAudioStream:
         """Clean up the FFmpeg process"""
         # Track stream end for stats synchronously - must happen before we return
         if self.request_timestamp is not None:
-            audio_stats.mark_stream_end(self.user_id)
+            audioplayer_stats.mark_stream_end(self.user_id)
 
         # Kill the process and signal stop event asynchronously (non-blocking)
         # This is done in a thread to avoid blocking on process termination
@@ -357,11 +364,11 @@ class UserAudioStream:
                     # Don't wait for process to fully terminate - just kill and move on
                     # The OS will clean it up
                 except Exception as e:
-                    _log.debug(f"Error killing process: {e}")
-            
+                    _log_debug.debug(f"Error killing process: {e}")
+
             # Signal progress thread to stop
             self.progress_stop_event.set()
-        
+
         # Run cleanup in background thread
         threading.Thread(target=async_cleanup, daemon=True).start()
 
@@ -399,21 +406,21 @@ class MixedAudioSource(discord.AudioSource):
             if user_id in self.streams:
                 old_stream = self.streams[user_id]
                 old_stream.cleanup()
-                _log.info(f"Replaced stream for {user_name} (ID: {user_id})")
+                _log_stream.info(f"Replaced stream for {user_name} (ID: {user_id})")
 
             # Create and start new stream
             stream = UserAudioStream(filepath, user_id, user_name, volume_boost, audio_filters, request_timestamp)
             stream.after_callback = after
             stream.start()
             self.streams[user_id] = stream
-            _log.info(f"Added stream for {user_name} (ID: {user_id}): {filepath} (volume: {volume_boost}x)")
-            
+            _log_stream.info(f"Added stream for {user_name} (ID: {user_id}): {filepath} (volume: {volume_boost}x)")
+
             # Trigger callback after adding (safe location, not in audio thread)
             if self.stream_changed_callback:
                 try:
                     self.stream_changed_callback()
                 except Exception as e:
-                    _log.debug(f"Error in stream_changed_callback: {e}")
+                    _log_debug.debug(f"Error in stream_changed_callback: {e}")
 
     def read(self) -> bytes:
         """Read and mix audio from all active streams"""
@@ -465,7 +472,7 @@ class MixedAudioSource(discord.AudioSource):
                 if stream.finished:
                     stream.cleanup()
                     del self.streams[user_id]
-                    _log.info(f"Stream finished for {stream.user_name} (ID: {user_id})")
+                    _log_stream.info(f"Stream finished for {stream.user_name} (ID: {user_id})")
                     # Signal that a stream finished (no callback from audio thread)
                     if self.stream_finished_event:
                         try:
@@ -501,7 +508,7 @@ class MixedAudioSource(discord.AudioSource):
                 stream.finished = True
                 stream.cleanup()
                 del self.streams[user_id]
-                _log.info(f"Stopped stream for {stream.user_name} (ID: {user_id})")
+                _log_stream.info(f"Stopped stream for {stream.user_name} (ID: {user_id})")
                 # Signal that a stream finished
                 if self.stream_finished_event:
                     try:
@@ -534,11 +541,11 @@ class AudioPlayer(commands.Cog):
         """Debounced queue update to prevent rapid-fire broadcasts."""
         if self._queue_update_pending or not self.queue_update_callback:
             return  # Already scheduled or no callback set
-        
+
         self._queue_update_pending = True
         await asyncio.sleep(self._queue_update_delay)
         self._queue_update_pending = False
-        
+
         # Call the callback (it's an async function)
         await self.queue_update_callback()  # type: ignore
 
@@ -663,7 +670,9 @@ class AudioPlayer(commands.Cog):
         if not filename.is_file():
             raise commands.CommandError("Audio file not found.")
 
-        item = QueueItem(query, user_id, user_name, after, volume_boost, audio_filters, request_timestamp, client_request_timestamp)
+        item = QueueItem(
+            query, user_id, user_name, after, volume_boost, audio_filters, request_timestamp, client_request_timestamp
+        )
 
         # Check if voice client changed (reconnection) - need to restart playback
         if self.current_voice_client is not None and self.current_voice_client != ctx.voice_client:
@@ -687,15 +696,19 @@ class AudioPlayer(commands.Cog):
 
                 # Track request start for stats AFTER stopping old stream
                 if request_timestamp is None:
-                    request_timestamp = audio_stats.start_request(user_id, user_name, str(filename), client_request_timestamp=client_request_timestamp)
+                    request_timestamp = audioplayer_stats.start_request(
+                        user_id, user_name, str(filename), client_request_timestamp=client_request_timestamp
+                    )
                 else:
-                    audio_stats.start_request(user_id, user_name, str(filename), request_timestamp, client_request_timestamp)
+                    audioplayer_stats.start_request(
+                        user_id, user_name, str(filename), request_timestamp, client_request_timestamp
+                    )
                 item.request_timestamp = request_timestamp
                 item.client_request_timestamp = client_request_timestamp
 
                 # Add to front of queue to play immediately
                 self.user_queues[user_id].appendleft(item)
-                audio_stats.mark_queued(user_id)
+                audioplayer_stats.mark_queued(user_id)
                 _log.info(f"{user_name} (ID: {user_id}) queued '{query}' for instant playback")
                 # Signal the processor to check for new work
                 if self.stream_finished_event:
@@ -708,12 +721,12 @@ class AudioPlayer(commands.Cog):
                 # Add to user's queue
                 if play_next and len(self.user_queues[user_id]) > 0:
                     self.user_queues[user_id].appendleft(item)
-                    _log.info(f"{user_name} (ID: {user_id}) queued '{query}' to play next in their queue")
+                    _log_queue.info(f"{user_name} (ID: {user_id}) queued '{query}' to play next in their queue")
                 else:
                     self.user_queues[user_id].append(item)
                     user_pos = len(self.user_queues[user_id])
                     total_queued = self._get_total_queue_size()
-                    _log.info(
+                    _log_queue.info(
                         f"{user_name} (ID: {user_id}) queued '{query}' (user queue: {user_pos}, total: {total_queued})"
                     )
 
@@ -741,7 +754,7 @@ class AudioPlayer(commands.Cog):
         self.current_voice_client = voice_client
 
         if self.is_processing:
-            _log.debug("Already processing, not starting new playback")
+            _log_debug.debug("Already processing, not starting new playback")
             return
 
         self.is_processing = True
@@ -774,8 +787,14 @@ class AudioPlayer(commands.Cog):
                         filename = CONFIG_AUDIO_BASE_DIR / PurePosixPath(item.query)
                         # Track stats for initial playback start (this is a new user action)
                         if item.request_timestamp is not None:
-                            audio_stats.start_request(user_id, item.user_name, str(filename), item.request_timestamp, item.client_request_timestamp)
-                            audio_stats.mark_queued(user_id)
+                            audioplayer_stats.start_request(
+                                user_id,
+                                item.user_name,
+                                str(filename),
+                                item.request_timestamp,
+                                item.client_request_timestamp,
+                            )
+                            audioplayer_stats.mark_queued(user_id)
                         self.mixed_source.add_stream(
                             user_id,
                             str(filename),
@@ -825,7 +844,7 @@ class AudioPlayer(commands.Cog):
                 # Safety check: if we're processing but voice client is not playing, something is wrong
                 if self.current_voice_client and not self.current_voice_client.is_playing():
                     if self.user_queues or (self.mixed_source and self.mixed_source.streams):
-                        _log.warning("Voice client not playing but we have work - restarting playback")
+                        _log_debug.debug("Voice client not playing but we have work - restarting playback")
                         # Try to restart playback
                         if self.mixed_source:
                             try:
@@ -836,7 +855,7 @@ class AudioPlayer(commands.Cog):
                                     bitrate=256,
                                     fec=True,
                                 )
-                                _log.info("Restarted voice client playback")
+                                _log_debug.debug("Restarted voice client playback")
                             except Exception as e:
                                 _log.error(f"Failed to restart playback: {e}")
                                 # If we can't restart, clean up and exit
@@ -885,7 +904,7 @@ class AudioPlayer(commands.Cog):
                                 item.audio_filters,
                                 item.request_timestamp,  # Pass through from item
                             )
-                            _log.info(
+                            _log_queue.info(
                                 f"Started playing '{item.query}' for {item.user_name} (user queue remaining: {len(queue)})"
                             )
                         else:
@@ -1082,14 +1101,14 @@ class AudioPlayer(commands.Cog):
             return False
 
         stream = self.mixed_source.streams[user_id]
-        
+
         # Mark finished and remove from mixer immediately
         stream.finished = True
         del self.mixed_source.streams[user_id]
-        
+
         # Cleanup synchronously - stats are done sync, process killing is done async internally
         stream.cleanup()
-            
+
         if user_name:
             _log.info(f"{user_name} (ID: {user_id}) stream stopped")
         return True
@@ -1118,7 +1137,7 @@ class AudioPlayer(commands.Cog):
 
             return {"skipped": True, "playing_next": len(self.user_queues.get(user_id, [])) > 0}
 
-        _log.info(f"{user_name} attempted to skip but no active stream for user {user_id}")
+        _log_debug.debug(f"{user_name} attempted to skip but no active stream for user {user_id}")
         return {"skipped": False, "playing_next": False}
 
     @commands.command()

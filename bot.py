@@ -185,10 +185,20 @@ async def main(args):
     log_level = logging.DEBUG if args.verbose else logging.INFO
     logging.basicConfig(level=log_level)
 
-    # Disable verbose logging for ffmpeg and aiohttp unless verbose is set
+    # Configure audioplayer specialized loggers
+    # By default, only show user actions (main logger at INFO)
+    # In verbose mode, enable all detailed logging
     if not args.verbose:
+        # Disable detailed logging for stats, latency, queue operations, and streams
+        logging.getLogger("audioplayer.stats").setLevel(logging.WARNING)
+        logging.getLogger("audioplayer.latency").setLevel(logging.WARNING)
+        logging.getLogger("audioplayer.queue").setLevel(logging.WARNING)
+        logging.getLogger("audioplayer.stream").setLevel(logging.WARNING)
+        logging.getLogger("audioplayer.debug").setLevel(logging.WARNING)
+        # Also disable verbose logging for ffmpeg and aiohttp
         logging.getLogger("discord.player").setLevel(logging.WARNING)
         logging.getLogger("aiohttp.access").setLevel(logging.WARNING)
+    # In verbose mode, all loggers use the global DEBUG level set above
 
     await start_discord_bot()
 

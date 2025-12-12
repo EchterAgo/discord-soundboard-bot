@@ -23,7 +23,7 @@ from watchdog.events import FileSystemEventHandler
 from utils import find_files
 from config import CONFIG_AUDIO_BASE_DIR
 import user_config
-from audio_stats import audio_stats
+from audioplayer_stats import audioplayer_stats
 
 
 _log = logging.getLogger(__name__)
@@ -808,7 +808,7 @@ async def jsonrpc_get_audio_stats(context) -> Result:
         - total_samples: Total number of samples collected
     """
     try:
-        stats = audio_stats.get_summary()
+        stats = audioplayer_stats.get_summary()
         return Success(stats)
     except Exception as e:
         _log.error(f"Failed to get audio stats: {e}", exc_info=True)
@@ -823,7 +823,7 @@ async def jsonrpc_clear_audio_stats(context) -> Result:
         Success result
     """
     try:
-        audio_stats.clear()
+        audioplayer_stats.clear()
         return Success("Audio statistics cleared")
     except Exception as e:
         _log.error(f"Failed to clear audio stats: {e}", exc_info=True)
