@@ -2,6 +2,7 @@ import argparse
 import asyncio
 import logging
 from pathlib import Path
+import socket
 
 import discord
 from discord.ext import commands
@@ -135,10 +136,14 @@ async def start_discord_bot():
     intents.members = True
     intents.presences = True
 
+    # Create a TCP connector that only uses IPv4
+    connector = aiohttp.TCPConnector(family=socket.AF_INET)
+
     bot = MyBot(
         command_prefix=commands.when_mentioned_or("!"),
         description="ObstNudler",
         intents=intents,
+        connector=connector,
     )
 
     await bot.add_cog(AudioPlayer(bot))
