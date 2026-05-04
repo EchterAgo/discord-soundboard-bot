@@ -830,6 +830,28 @@ async def jsonrpc_clear_audio_stats(context) -> Result:
         return Error(1, f"Failed to clear audio stats: {str(e)}")
 
 
+@method(name="get_voice_channels")
+async def jsonrpc_get_voice_channels(context) -> Result:
+    """Get all available voice channels from the bot's guilds.
+
+    Returns:
+        List of voice channels with id, name, guild_name, and guild_id
+    """
+    bot = context["app"]["bot"]
+
+    channels = []
+    for guild in bot.guilds:
+        for channel in guild.voice_channels:
+            channels.append({
+                "id": str(channel.id),
+                "name": channel.name,
+                "guild_name": guild.name,
+                "guild_id": str(guild.id),
+            })
+
+    return Success(channels)
+
+
 @method(name="register_user")
 async def jsonrpc_register_user(context, user_name: str, channelid: str = "1033659964457230392") -> Result:
     """Register the username for the current WebSocket connection.

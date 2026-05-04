@@ -2,7 +2,7 @@ const { createApp } = Vue;
 
 // RPC Client
 const WS_URL = 'wss://apollo.loping.net/ws';
-const DISCORD_VOICE_CHANNEL_ID = '1033659964457230392';
+const DISCORD_VOICE_CHANNEL_ID_DEFAULT = '1033659964457230392';
 
 // Predefined colors - always available, not saved to config
 const PREDEFINED_COLORS = [
@@ -328,6 +328,8 @@ const app = createApp({
             },
             PREDEFINED_COLORS: PREDEFINED_COLORS,
             allSounds: [],
+            selectedChannelId: localStorage.getItem('selectedChannelId') || DISCORD_VOICE_CHANNEL_ID_DEFAULT,
+            availableChannels: [],
             connectedUsers: 0,
             connectedUserList: [],
             showConnectedUsers: false,
@@ -820,6 +822,20 @@ const app = createApp({
             this.loadUserConfig();
         },
 
+        saveChannelId() {
+            localStorage.setItem('selectedChannelId', this.selectedChannelId);
+            this.refreshQueue();
+        },
+
+        async loadVoiceChannels() {
+            try {
+                this.availableChannels = await rpcCall('get_voice_channels', {});
+                console.log('[Channels] Loaded', this.availableChannels.length, 'voice channels');
+            } catch (error) {
+                console.error('[Channels] Failed to load voice channels:', error);
+            }
+        },
+
         saveQueueDisplayMode() {
             this.saveConfig();
         },
@@ -835,7 +851,7 @@ const app = createApp({
             try {
                 await rpcCall('register_user', {
                     user_name: this.username,
-                    channelid: DISCORD_VOICE_CHANNEL_ID
+                    channelid: this.selectedChannelId
                 });
                 console.log('[User] Registered as', this.username);
             } catch (error) {
@@ -947,7 +963,7 @@ const app = createApp({
 
             try {
                 const params = {
-                    channelid: DISCORD_VOICE_CHANNEL_ID,
+                    channelid: this.selectedChannelId,
                     user_name: this.username,
                     query: query,
                     audio_filters: this.prepareAudioFilters(audio_filters),
@@ -1063,7 +1079,7 @@ const app = createApp({
         async stopPlayback() {
             try {
                 await rpcCall('stop', {
-                    channelid: DISCORD_VOICE_CHANNEL_ID
+                    channelid: this.selectedChannelId
                 });
                 this.refreshQueue();
             } catch (error) {
@@ -1078,7 +1094,7 @@ const app = createApp({
             }
             try {
                 await rpcCall('skip', {
-                    channelid: DISCORD_VOICE_CHANNEL_ID,
+                    channelid: this.selectedChannelId,
                     user_name: this.username
                 });
                 this.refreshQueue();
@@ -1091,7 +1107,7 @@ const app = createApp({
         async refreshQueue() {
             try {
                 this.queueStatus = await rpcCall('queue_status', {
-                    channelid: DISCORD_VOICE_CHANNEL_ID
+                    channelid: this.selectedChannelId
                 });
             } catch (error) {
                 console.error('Failed to refresh queue:', error);
@@ -1101,7 +1117,7 @@ const app = createApp({
         async removeQueueItem(userId, index) {
             try {
                 await rpcCall('remove_queue_item', {
-                    channelid: DISCORD_VOICE_CHANNEL_ID,
+                    channelid: this.selectedChannelId,
                     user_id: userId,
                     item_index: index
                 });
@@ -1125,7 +1141,7 @@ const app = createApp({
                 // Remove items from the end to avoid index shifting issues
                 for (let i = userQueue.items.length - 1; i >= 0; i--) {
                     await rpcCall('remove_queue_item', {
-                        channelid: DISCORD_VOICE_CHANNEL_ID,
+                        channelid: this.selectedChannelId,
                         user_id: userId,
                         item_index: i
                     });
@@ -1756,6 +1772,7 @@ const app = createApp({
 
             // Load initial data
             this.loadAllSounds();
+            this.loadVoiceChannels();
 
             if (this.username) {
                 this.loadUserConfig();
