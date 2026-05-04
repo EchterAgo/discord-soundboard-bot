@@ -236,7 +236,9 @@ class UserAudioStream:
                 "-ac",
                 "2",
                 "-bufsize",
-                "256k",  # Large buffer for smooth streaming
+                "32k",
+                "-blocksize",
+                "8k",
                 "-flush_packets",
                 "0",  # Don't flush packets immediately, buffer for smoother output
                 "-loglevel",
@@ -249,7 +251,7 @@ class UserAudioStream:
                 args,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL,  # Prevent stderr buffer from blocking FFmpeg
-                bufsize=65536,  # 64KB pipe buffer for smoother reads
+                bufsize=0,
                 pass_fds=(progress_w,),
             )
             # Close write end in parent, keep read end
@@ -697,11 +699,14 @@ class AudioPlayer(commands.Cog):
                 # Track request start for stats AFTER stopping old stream
                 if request_timestamp is None:
                     request_timestamp = audioplayer_stats.start_request(
-                        user_id, user_name, str(filename), client_request_timestamp=client_request_timestamp
+                        user_id, user_name, str(filename), 
+                        client_request_timestamp=client_request_timestamp,
+                        voice_latency=ctx.voice_client.latency if ctx.voice_client else None
                     )
                 else:
                     audioplayer_stats.start_request(
-                        user_id, user_name, str(filename), request_timestamp, client_request_timestamp
+                        user_id, user_name, str(filename), request_timestamp, client_request_timestamp,
+                        voice_latency=ctx.voice_client.latency if ctx.voice_client else None
                     )
                 item.request_timestamp = request_timestamp
                 item.client_request_timestamp = client_request_timestamp
@@ -793,6 +798,7 @@ class AudioPlayer(commands.Cog):
                                 str(filename),
                                 item.request_timestamp,
                                 item.client_request_timestamp,
+                                voice_latency=voice_client.latency if voice_client else None,
                             )
                             audioplayer_stats.mark_queued(user_id)
                         self.mixed_source.add_stream(
@@ -809,7 +815,7 @@ class AudioPlayer(commands.Cog):
             voice_client.play(
                 self.mixed_source,
                 after=lambda e: self._on_playback_done(e),
-                application="audio",  # Use 'audio' mode for best quality (not lowdelay)
+                application="lowdelay",
                 bitrate=256,  # Maximum bitrate for best quality
                 fec=True,
             )
@@ -851,7 +857,7 @@ class AudioPlayer(commands.Cog):
                                 self.current_voice_client.play(
                                     self.mixed_source,
                                     after=lambda e: self._on_playback_done(e),
-                                    application="audio",  # Use 'audio' mode for best quality
+                                    application="lowdelay",
                                     bitrate=256,
                                     fec=True,
                                 )

@@ -695,8 +695,14 @@ class Bloedsinn(commands.Cog):
 
     @app_commands.command(name="straubenstraub", description="Straubenstraub")
     @app_commands.describe(add_inst="Additional instructions (optional)")
+    @app_commands.describe(model="Model to use (optional)")
     @app_commands.guilds(1033659963580633088)
-    async def straubenstraub(self, interaction: discord.Interaction, add_inst: str = ""):
+    async def straubenstraub(
+        self,
+        interaction: discord.Interaction,
+        add_inst: str = "",
+        model: str = "nousresearch/hermes-4-405b",
+    ):
         await interaction.response.send_message("Straubenstraub wird erstellt, bitte warten...")
 
         async def task_func():
@@ -720,9 +726,7 @@ class Bloedsinn(commands.Cog):
 
                 _log.info(f"Requested prompt is {len(prompt)} bytes")
 
-                response = await talk_to_gpt(prompt=prompt, model="nousresearch/hermes-3-llama-3.1-405b")
-                # response = await talk_to_gpt(prompt=prompt, model="google/gemini-flash-1.5")
-                # response = await talk_to_gpt(prompt=prompt, model="chatgpt-4o-latest")
+                response = await talk_to_gpt(prompt=prompt, model=model)
 
                 response_text = response.text
                 if not response_text:

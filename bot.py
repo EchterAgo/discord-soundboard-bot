@@ -143,7 +143,7 @@ async def start_discord_bot():
         command_prefix=commands.when_mentioned_or("!"),
         description="ObstNudler",
         intents=intents,
-        connector=connector,
+        #connector=connector,
     )
 
     await bot.add_cog(AudioPlayer(bot))

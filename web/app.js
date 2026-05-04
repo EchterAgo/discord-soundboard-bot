@@ -363,7 +363,10 @@ const app = createApp({
             },
             focusedButtonIndex: -1,
             iconLibrary: 'bootstrap',
-            iconSearchQuery: ''
+            iconSearchQuery: '',
+            // Favicon template caching
+            faviconTemplate: null,
+            faviconObjectUrl: null
         };
     },
     computed: {
@@ -516,30 +519,49 @@ const app = createApp({
         filterIcons() {
             // Computed property will handle filtering
         },
-        updateFavicon(isPlaying) {
-            // Create SVG favicon with dynamic color
-            const color = isPlaying ? '#22c55e' : '#5865F2'; // Green when playing, Discord blue otherwise
-            const svg = `
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-                  <circle cx="32" cy="32" r="32" fill="${color}"/>
-                  <path d="M 22 22 L 22 42 L 28 42 L 38 50 L 38 14 L 28 22 Z" fill="#FFFFFF"/>
-                  <path d="M 42 24 Q 46 28, 46 32 Q 46 36, 42 40" stroke="#FFFFFF" stroke-width="2.5" fill="none" stroke-linecap="round"/>
-                  <path d="M 46 20 Q 52 26, 52 32 Q 52 38, 46 44" stroke="#FFFFFF" stroke-width="2.5" fill="none" stroke-linecap="round"/>
-                </svg>
-            `;
+        async updateFavicon(isPlaying) {
+            try {
+                // Load and cache template if needed
+                if (!this.faviconTemplate) {
+                    const resp = await fetch('favicon.svg', { cache: 'no-cache' });
+                    if (!resp.ok) throw new Error('Failed to load favicon.svg');
+                    this.faviconTemplate = await resp.text();
+                }
 
-            // Convert SVG to data URL
-            const svgBlob = new Blob([svg], { type: 'image/svg+xml' });
-            const url = URL.createObjectURL(svgBlob);
+                // Inject dynamic background color
+                const color = isPlaying ? '#22c55e' : '#5865F2';
+                const svg = this.faviconTemplate.replace(/\{\{BG_COLOR\}\}/g, color);
 
-            // Update favicon
-            let link = document.querySelector('link[rel="icon"]');
-            if (!link) {
-                link = document.createElement('link');
-                link.rel = 'icon';
-                document.head.appendChild(link);
+                // Create object URL from SVG
+                const svgBlob = new Blob([svg], { type: 'image/svg+xml' });
+                const url = URL.createObjectURL(svgBlob);
+
+                // Update favicon link
+                let link = document.querySelector('link[rel="icon"]');
+                if (!link) {
+                    link = document.createElement('link');
+                    link.rel = 'icon';
+                    link.type = 'image/svg+xml';
+                    document.head.appendChild(link);
+                }
+
+                // Revoke previous object URL to avoid leaks
+                if (this.faviconObjectUrl) {
+                    try { URL.revokeObjectURL(this.faviconObjectUrl); } catch (e) {}
+                }
+                this.faviconObjectUrl = url;
+                link.href = url;
+            } catch (e) {
+                // Fallback to static link if template loading fails
+                let link = document.querySelector('link[rel="icon"]');
+                if (!link) {
+                    link = document.createElement('link');
+                    link.rel = 'icon';
+                    link.type = 'image/svg+xml';
+                    document.head.appendChild(link);
+                }
+                link.href = 'favicon.svg';
             }
-            link.href = url;
         },
         cleanSoundName(soundPath) {
             // Split the path into parts

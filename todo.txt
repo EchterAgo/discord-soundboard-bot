@@ -1,2 +1,40 @@
-audio player queue
-audio player mixing
+https://discord.com/oauth2/authorize?client_id=1085103559244251179&permissions=4280396887358272&integration_type=0&scope=bot+applications.commands
+
+check user when clearing queue
+ -> admin system
+queue limits, maybe by time
+
+multiple custom lists
+add bulk deletion
+maybe instant should have a modifcation to just play a new sound mixed into whatever is currently already playing
+
+admin panel
+ability to upload sounds
+make button library with default parameters, can add from there
+client side sound scripts to play back things like the half life steps randomly
+
+add themes from bootstrap theme repositories
+larger icon library to add
+different chunk size in mixer for lower latency
+
+
+
+
+
+i installed coqui-tts. please analyze and run the tts_test.py file to get an idea of available features/models/speakers and general usage. the generation should also have a disk lru cache, maybe using cachelib, because i expect the same things to be synthesized repeatedly.
+
+
+https://pypi.org/project/coqui-tts/
+https://github.com/idiap/coqui-ai-TTS
+https://coqui-tts.readthedocs.io/en/latest/
+https://coqui-tts.readthedocs.io/en/latest/cloning.html
+https://coqui-tts.readthedocs.io/en/latest/models/xtts.html#streaming-manually
+
+
+
+https://platform.openai.com/docs/guides/text-to-speech#streaming-realtime-audio
+
+
+
+
+pip install torch==2.7.1 torchaudio==2.7.1 --index-url https://download.pytorch.org/whl/cu118

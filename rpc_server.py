@@ -20,7 +20,7 @@ from jsonrpcserver import (
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
-from utils import find_files
+from utils import find_files, json_dumps_strict
 from config import CONFIG_AUDIO_BASE_DIR
 import user_config
 from audioplayer_stats import audioplayer_stats
@@ -98,7 +98,7 @@ async def broadcast_file_list_update():
 
     try:
         files = list(find_files(CONFIG_AUDIO_BASE_DIR))
-        message = json.dumps({"type": "file_list_update", "files": files}, allow_nan=False)
+        message = json_dumps_strict({"type": "file_list_update", "files": files})
 
         disconnected = set()
         for ws in websocket_connections:
@@ -282,7 +282,7 @@ async def broadcast_queue_update(bot, channelid):
 
         # Broadcast to all connected clients
         try:
-            message = json.dumps(status, allow_nan=False)  # Reject NaN/Infinity to prevent invalid JSON
+            message = json_dumps_strict(status)  # Enforce strict JSON and sanitize non-finite numbers
         except (ValueError, TypeError) as e:
             _log.error(f"Failed to serialize queue status to JSON: {e}. Status data: {status}")
             return
@@ -312,7 +312,7 @@ async def broadcast_config_update(user_name: str):
         return
 
     try:
-        message = json.dumps({"type": "config_update", "user_name": user_name}, allow_nan=False)
+        message = json_dumps_strict({"type": "config_update", "user_name": user_name})
 
         disconnected = set()
         for ws in websocket_connections:

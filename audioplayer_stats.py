@@ -7,6 +7,7 @@ from collections import deque
 from dataclasses import dataclass
 from typing import Dict, Optional
 import statistics
+import math
 
 _log = logging.getLogger("audioplayer.stats")
 
@@ -24,6 +25,7 @@ class AudioPipelineStats:
     stream_start_timestamp: Optional[float] = None  # When ffmpeg process started
     first_byte_timestamp: Optional[float] = None  # When first byte was decoded
     stream_end_timestamp: Optional[float] = None  # When playback finished
+    voice_latency: Optional[float] = None  # Discord voice client WebSocket latency (in seconds)
 
     # Latency metrics (in milliseconds)
     client_to_server_latency: Optional[float] = None  # Time from client click to server receive
@@ -33,6 +35,7 @@ class AudioPipelineStats:
     total_latency: Optional[float] = None  # Time from request to first byte
     end_to_end_latency: Optional[float] = None  # Time from client click to first byte
     playback_duration: Optional[float] = None  # Total playback time
+    voice_latency_ms: Optional[float] = None  # Discord voice WebSocket latency in milliseconds
 
     def calculate_latencies(self):
         """Calculate all latency metrics."""
@@ -59,6 +62,11 @@ class AudioPipelineStats:
         if self.stream_end_timestamp and self.stream_start_timestamp:
             self.playback_duration = (self.stream_end_timestamp - self.stream_start_timestamp) * 1000
 
+        if self.voice_latency is not None and math.isfinite(self.voice_latency):
+            self.voice_latency_ms = self.voice_latency * 1000
+        else:
+            self.voice_latency_ms = None
+
     def to_dict(self) -> Dict:
         """Convert to dictionary for JSON serialization."""
         return {
@@ -80,6 +88,7 @@ class AudioPipelineStats:
             "total_latency": round(self.total_latency, 2) if self.total_latency else None,
             "end_to_end_latency": round(self.end_to_end_latency, 2) if self.end_to_end_latency else None,
             "playback_duration": round(self.playback_duration, 2) if self.playback_duration else None,
+            "voice_latency_ms": round(self.voice_latency_ms, 2) if self.voice_latency_ms else None,
         }
 
 
@@ -99,6 +108,7 @@ class AudioStatsCollector:
         filepath: str,
         timestamp: Optional[float] = None,
         client_request_timestamp: Optional[float] = None,
+        voice_latency: Optional[float] = None,
     ) -> float:
         """Start tracking a new audio request.
 
@@ -108,6 +118,7 @@ class AudioStatsCollector:
             filepath: Path to audio file
             timestamp: Optional server timestamp (defaults to current time)
             client_request_timestamp: Optional client timestamp adjusted for clock offset
+            voice_latency: Optional Discord voice client WebSocket latency in seconds
 
         Returns:
             Request timestamp
@@ -116,6 +127,9 @@ class AudioStatsCollector:
             timestamp = time.time()
 
         with self.lock:
+            # Sanitize non-finite voice latency values
+            if voice_latency is not None and not math.isfinite(voice_latency):
+                voice_latency = None
             # Don't overwrite if we're already tracking this user
             if user_id not in self.active_stats:
                 stats = AudioPipelineStats(
@@ -124,6 +138,7 @@ class AudioStatsCollector:
                     filepath=filepath,
                     request_timestamp=timestamp,
                     client_request_timestamp=client_request_timestamp,
+                    voice_latency=voice_latency,
                 )
                 self.active_stats[user_id] = stats
                 _log.debug(f"Started tracking request for {user_name} (ID: {user_id})")
@@ -218,6 +233,7 @@ class AudioStatsCollector:
                     s.client_to_server_latency for s in self.history if s.client_to_server_latency is not None
                 ]
                 end_to_end_latencies = [s.end_to_end_latency for s in self.history if s.end_to_end_latency is not None]
+                voice_latencies = [s.voice_latency_ms for s in self.history if s.voice_latency_ms is not None]
 
                 averages = {}
                 percentiles = {}
@@ -288,6 +304,22 @@ class AudioStatsCollector:
                         "p99": (
                             round(statistics.quantiles(end_to_end_latencies, n=100)[98], 2)
                             if len(end_to_end_latencies) >= 100
+                            else None
+                        ),
+                    }
+
+                if voice_latencies:
+                    averages["voice_latency"] = round(statistics.mean(voice_latencies), 2)
+                    percentiles["voice_latency"] = {
+                        "p50": round(statistics.median(voice_latencies), 2),
+                        "p95": (
+                            round(statistics.quantiles(voice_latencies, n=20)[18], 2)
+                            if len(voice_latencies) >= 20
+                            else None
+                        ),
+                        "p99": (
+                            round(statistics.quantiles(voice_latencies, n=100)[98], 2)
+                            if len(voice_latencies) >= 100
                             else None
                         ),
                     }
